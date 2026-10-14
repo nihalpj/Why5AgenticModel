@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Qwen 3.5 4B Distills into Why5 2B</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel2: #1c2333; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --accent2: #3fb950;
+    --warn: #d29922; --danger: #f85149; --purple: #bc8cff; --mono: 13px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6; padding-bottom: 80px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  header {
+    background: linear-gradient(135deg, #1a2233 0%, #0d1117 60%);
+    border-bottom: 1px solid var(--border); padding: 48px 0 36px; margin-bottom: 40px;
+  }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }
+  h1 .arrow { color: var(--accent); }
+  .sub { color: var(--muted); margin-top: 8px; font-size: 16px; }
+  .badges { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; padding: 3px 10px; border-radius: 12px;
+    border: 1px solid var(--border); color: var(--muted); background: var(--panel);
+  }
+  h2 { font-size: 22px; margin: 48px 0 8px; display: flex; align-items: center; gap: 10px; }
+  h2 .num {
+    background: var(--accent); color: #0d1117; font-size: 14px; font-weight: 700;
+    width: 26px; height: 26px; border-radius: 6px; display: inline-flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .lead { color: var(--muted); margin-bottom: 20px; max-width: 820px; }
+
+  /* ---- three-target cards ---- */
+  .cards3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; border-top: 3px solid var(--accent);
+  }
+  .card.no { border-top-color: var(--danger); }
+  .card.yes { border-top-color: var(--accent2); }
+  .card h3 { font-size: 15px; margin-bottom: 6px; }
+  .card .tag {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px; display: inline-block; margin-bottom: 10px;
+  }
+  .card.no .tag { background: rgba(248,81,73,.15); color: var(--danger); }
+  .card.yes .tag { background: rgba(63,185,80,.15); color: var(--accent2); }
+  .card p { font-size: 13.5px; color: var(--muted); }
+  .card code { color: var(--accent); font-size: 12.5px; }
+
+  /* ---- pipeline flow ---- */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .stage {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; transition: border-color .2s;
+  }
+  .stage + .connector { align-self: center; color: var(--muted); font-size: 18px; padding: 2px 0; }
+  .stage:hover { border-color: var(--accent); }
+  .stage-head {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer;
+    user-select: none;
+  }
+  .stage-head .chip {
+    font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--accent);
+    padding: 3px 8px; border-radius: 6px; white-space: nowrap;
+  }
+  .stage-head .name { font-weight: 600; font-size: 15px; }
+  .stage-head .when { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .stage-head .caret { color: var(--muted); transition: transform .2s; font-size: 12px; }
+  .stage.open .caret { transform: rotate(90deg); }
+  .stage-body {
+    max-height: 0; overflow: hidden; transition: max-height .35s ease;
+    border-top: 0 solid transparent;
+  }
+  .stage.open .stage-body { max-height: 600px; border-top: 1px solid var(--border); }
+  .stage-body-inner { padding: 16px 18px; font-size: 14px; color: var(--muted); }
+  .stage-body-inner b { color: var(--text); }
+  .stage-body-inner ul { margin: 8px 0 0 18px; }
+  .stage-body-inner li { margin-bottom: 6px; }
+
+  /* ---- terminal / code ---- */
+  .term {
+    background: #0a0e14; border: 1px solid var(--border); border-radius: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--mono);
+    overflow: hidden;
+  }
+  .term-bar {
+    display: flex; gap: 6px; padding: 10px 14px; background: var(--panel);
+    border-bottom: 1px solid var(--border); align-items: center;
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.r { background: #ff5f56; } .dot.y { background: #ffbd2e; } .dot.g { background: #27c93f; }
+  .term-bar .title { margin-left: 8px; color: var(--muted); font-size: 12px; }
+  .term pre { padding: 16px; overflow-x: auto; line-height: 1.5; }
+  .k { color: #79c0ff; } .s { color: #a5d6ff; } .c { color: #8b949e; }
+  .tag-why { color: #d2a8ff; font-weight: 600; } .num-c { color: #ffa657; }
+  .ok { color: var(--accent2); } .bad { color: var(--danger); } .warn { color: var(--warn); }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+
+  /* ---- loop diagram ---- */
+  .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }
+  .node {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; position: relative; font-size: 13.5px;
+  }
+  .node .icon { font-size: 22px; margin-bottom: 6px; }
+  .node b { display: block; margin-bottom: 4px; font-size: 14px; }
+  .node p { color: var(--muted); font-size: 12.5px; }
+  .node.hot { border-color: var(--warn); } .node.cold { border-color: var(--accent2); }
+
+  /* ---- depth demo ---- */
+  .depth-demo { margin-top: 16px; }
+  .depth-btns { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .dbtn {
+    font-family: ui-monospace, monospace; font-size: 13px; padding: 8px 16px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); cursor: pointer; transition: all .15s;
+  }
+  .dbtn:hover { border-color: var(--accent); }
+  .dbtn.active { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 700; }
+  .dbtn small { display: block; font-size: 10px; color: inherit; opacity: .75; }
+  .whybox {
+    border-left: 3px solid var(--purple); background: var(--panel);
+    padding: 10px 14px; margin: 8px 0; border-radius: 0 8px 8px 0;
+    animation: slideIn .3s ease both; font-size: 13.5px;
+  }
+  .whybox .wn { color: var(--purple); font-family: ui-monospace, monospace; font-size: 11px; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+  .proto-line { font-family: ui-monospace, monospace; font-size: 12.5px; padding: 8px 14px; margin: 6px 0; background: var(--panel2); border-radius: 6px; color: var(--muted); }
+  .proto-line b { color: var(--accent); }
+
+  /* ---- gates ---- */
+  .gates { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-top: 14px; }
+  .gate {
+    font-family: ui-monospace, monospace; font-size: 12px; padding: 8px 12px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .gate b { color: var(--accent2); }
+  .gate span { color: var(--muted); display: block; font-size: 11px; font-family: inherit; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border: 1px solid var(--border); }
+  th { background: var(--panel); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  td { color: var(--text); } td.mut { color: var(--muted); }
+  tr.me td { background: rgba(88,166,255,.05); }
+
+  .note {
+    border-left: 3px solid var(--warn); background: var(--panel);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; margin-top: 16px;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .note b { color: var(--warn); }
+  .diagram {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px; margin-top: 8px; overflow-x: auto;
+  }
+  .diagram svg { width: 100%; height: auto; display: block; min-width: 720px; }
+  .bp { fill: #1c2333; stroke: #58a6ff; stroke-width: 1.2; }
+  .boxv { stroke: #bc8cff; } .boxg { stroke: #3fb950; }
+  .boxr { stroke: #f85149; } .boxw { stroke: #d29922; }
+  footer { margin-top: 64px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--border); padding-top: 20px; }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Qwen 3.5 4B <span class="arrow">⟶</span> Why5 2B</h1>
+    <div class="sub">How a small teacher's reasoning is distilled into an adaptive-depth agentic model — and what is deliberately <i>not</i> distilled.</div>
+    <div class="badges">
+      <span class="badge">response-based KD</span>
+      <span class="badge">on-policy correction → DPO</span>
+      <span class="badge">environment-as-judge</span>
+      <span class="badge">rubric-supervised depth control</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ================= 1. THE BIG IDEA ================= -->
+  <h2><span class="num">1</span> The big idea: split "5-why" into three targets</h2>
+  <p class="lead">The 5-why principle looks like one behavior, but it's three separable learning problems.
+  Only two of them should come from the teacher.</p>
+
+  <div class="cards3">
+    <div class="card no">
+      <span class="tag">✗ not distilled</span>
+      <h3>Depth routing — when to do 3, 4, or 5 whys</h3>
+      <p>Comes from the <b>factory rubric</b>: a deterministic function of the task seed's features
+      (call-graph size, branching, retry-reasoning). Labels are exact, and an FSM at serve time
+      enforces the step count. If the student imitated the teacher here, it would inherit the
+      teacher's miscalibration — so the depth token <code>&lt;|depth_N|&gt;</code> is
+      <b>CE-supervised by the rubric only and excluded from KL</b>.</p>
+    </div>
+    <div class="card yes">
+      <span class="tag">✓ distilled</span>
+      <h3>Why-step content — the reasoning itself</h3>
+      <p>The teacher supplies the text inside the why-steps: intent decomposition, information-gap
+      analysis, tool mapping, contingency ordering, hypothesis revision. Sampled 4 candidates per
+      seed, parsed to <i>exactly N steps</i> or rejected, median-length valid candidate kept
+      (no verbosity bias).</p>
+    </div>
+    <div class="card yes">
+      <span class="tag">✓ distilled + verified</span>
+      <h3>Tool competence — calls, ordering, recovery</h3>
+      <p>The teacher proposes; the <b>sandbox disposes</b>. Every tool call must validate against
+      its JSON Schema (G3) and the whole trajectory must execute successfully in the sandbox (G4/G5)
+      before the trace can enter the corpus. The teacher's errors never reach the student.</p>
+    </div>
+  </div>
+
+  <!-- ================= 2. ARCHITECTURE ================= -->
+  <h2><span class="num">2</span> System architecture</h2>
+  <p class="lead">Three bands: the <b style="color:var(--purple)">teacher fleet</b> supplies reasoning content,
+  the <b style="color:var(--accent)">data factory</b> owns ground truth and verification, and the
+  <b style="color:var(--accent2)">student stack</b> trains, holds, and serves the Why5 2B model.
+  The dashed purple return path is the on-policy loop.</p>
+
+  <div class="diagram">
+  <svg viewBox="0 0 1000 620" role="img" aria-label="Why5 distillation system architecture">
+    <defs>
+      <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#58a6ff"/>
+      </marker>
+      <marker id="ah1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#3fb950"/>
+      </marker>
+      <marker id="ah1v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#bc8cff"/>
+      </marker>
+      <marker id="ah1w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#d29922"/>
+      </marker>
+    </defs>
+    <style>
+      .arch text { fill:#e6edf3; font-size:12px; }
+      .arch .bandh { font-size:11px; font-weight:700; letter-spacing:1.2px; }
+      .arch .sub { fill:#8b949e; font-size:10.5px; }
+      .arch .note-t { fill:#8b949e; font-size:10.5px; font-style:italic; }
+      .arch .flow { fill:none; stroke-width:1.6; }
+    </style>
+    <g class="arch">
+      <!-- bands -->
+      <rect x="16" y="40" width="270" height="500" rx="10" fill="#161b22" stroke="#bc8cff" stroke-opacity=".35"/>
+      <rect x="306" y="40" width="330" height="500" rx="10" fill="#161b22" stroke="#58a6ff" stroke-opacity=".35"/>
+      <rect x="656" y="40" width="328" height="500" rx="10" fill="#161b22" stroke="#3fb950" stroke-opacity=".35"/>
+      <text x="151" y="62" text-anchor="middle" class="bandh" fill="#bc8cff">TEACHER FLEET</text>
+      <text x="471" y="62" text-anchor="middle" class="bandh" fill="#58a6ff">DATA FACTORY — GROUND TRUTH &amp; VERIFICATION</text>
+      <text x="820" y="62" text-anchor="middle" class="bandh" fill="#3fb950">STUDENT — WHY5 2B</text>
+
+      <!-- teacher boxes -->
+      <rect x="32" y="80" width="238" height="56" rx="8" class="bp boxv"/>
+      <text x="151" y="102" text-anchor="middle">Qwen 3.5 4B — bulk teacher (R1)</text>
+      <text x="151" y="120" text-anchor="middle" class="sub">vLLM :8000 · tiers 3–4 · ~80% of tokens</text>
+      <rect x="32" y="152" width="238" height="56" rx="8" class="bp boxv"/>
+      <text x="151" y="174" text-anchor="middle">Escalation teacher (R2)</text>
+      <text x="151" y="192" text-anchor="middle" class="sub">14B+ same family · tier-5 + D5 verify</text>
+      <rect x="32" y="224" width="238" height="56" rx="8" class="bp boxv"/>
+      <text x="151" y="246" text-anchor="middle">On-policy corrector (R3)</text>
+      <text x="151" y="264" text-anchor="middle" class="sub">regenerates failed student rollouts</text>
+      <rect x="32" y="296" width="238" height="72" rx="8" class="bp"/>
+      <text x="151" y="316" text-anchor="middle" class="note-t">format adapter: seeds → Hermes chat;</text>
+      <text x="151" y="331" text-anchor="middle" class="note-t">&lt;why&gt; blocks → protocol_turns.</text>
+      <text x="151" y="346" text-anchor="middle" class="note-t">teacher never sees the gold graph</text>
+      <text x="151" y="361" text-anchor="middle" class="note-t">and never decides depth.</text>
+
+      <!-- factory boxes -->
+      <rect x="322" y="80" width="298" height="56" rx="8" class="bp"/>
+      <text x="471" y="102" text-anchor="middle">Seed generator + gold-depth rubric</text>
+      <text x="471" y="120" text-anchor="middle" class="sub">structured task specs · exact tiers 3/4/5</text>
+      <rect x="322" y="152" width="298" height="56" rx="8" class="bp"/>
+      <text x="471" y="174" text-anchor="middle">Tool zoo v1.x (400+ schemas)</text>
+      <text x="471" y="192" text-anchor="middle" class="sub">200 real-style + 200 adversarial procedural</text>
+      <rect x="322" y="224" width="298" height="56" rx="8" class="bp"/>
+      <text x="471" y="246" text-anchor="middle">Sandbox fleet</text>
+      <text x="471" y="264" text-anchor="middle" class="sub">SQL · shell · REST-sim · fault injection</text>
+      <rect x="322" y="296" width="298" height="56" rx="8" class="bp"/>
+      <text x="471" y="318" text-anchor="middle">Validator — gates G1–G10</text>
+      <text x="471" y="336" text-anchor="middle" class="sub">parse · schema · execution · dedup · decont</text>
+      <rect x="322" y="368" width="298" height="88" rx="8" class="bp boxg"/>
+      <text x="471" y="390" text-anchor="middle">JSONL store (§3.7 contract)</text>
+      <text x="471" y="408" text-anchor="middle" class="sub">immutable shards · SHA-256 manifest</text>
+      <text x="471" y="423" text-anchor="middle" class="sub">train / val / holdout splits</text>
+      <text x="471" y="438" text-anchor="middle" class="sub">full provenance per record</text>
+
+      <!-- student boxes -->
+      <rect x="672" y="80" width="296" height="76" rx="8" class="bp boxg"/>
+      <text x="820" y="102" text-anchor="middle">Training stack</text>
+      <text x="820" y="120" text-anchor="middle" class="sub">SFT (masked) + optional KL · DPO on pairs</text>
+      <text x="820" y="136" text-anchor="middle" class="sub">GRPO RL (sandbox reward) · calibration head</text>
+      <rect x="672" y="172" width="296" height="140" rx="8" class="bp boxg" stroke-width="1.8"/>
+      <text x="820" y="194" text-anchor="middle" font-weight="700">Why5 2B student</text>
+      <text x="820" y="214" text-anchor="middle" class="sub">depth token head  &lt;|depth_3/4/5|&gt;  (rubric-supervised)</text>
+      <text x="820" y="230" text-anchor="middle" class="sub">30 × blocks · GQA 32Q / 8KV heads</text>
+      <text x="820" y="246" text-anchor="middle" class="sub">RoPE base 500K → 256K context</text>
+      <text x="820" y="262" text-anchor="middle" class="sub">131K vocab · tied embeddings</text>
+      <text x="820" y="278" text-anchor="middle" class="sub">~2.05B params · INT4 on 8GB / FP8 on L4</text>
+      <text x="820" y="298" text-anchor="middle" class="note-t">protocol tokens: why · plan · tool_call · final</text>
+      <rect x="672" y="328" width="296" height="72" rx="8" class="bp boxg"/>
+      <text x="820" y="350" text-anchor="middle">Serving — vLLM fork</text>
+      <text x="820" y="368" text-anchor="middle" class="sub">FSM grammar: exactly N why-blocks · depth_used</text>
+      <text x="820" y="384" text-anchor="middle" class="sub">force_depth override · why_trace (orchestrator-only)</text>
+
+      <!-- arrows -->
+      <!-- seeds + registry -> bulk teacher -->
+      <path d="M322 108 H270" class="flow" stroke="#58a6ff" marker-end="url(#ah1)"/>
+      <text x="296" y="100" text-anchor="middle" class="sub">seeds +</text>
+      <text x="296" y="126" text-anchor="middle" class="sub">registry</text>
+      <!-- teacher -> validator (candidates) -->
+      <path d="M270 112 C 300 112, 292 324, 322 324" class="flow" stroke="#bc8cff" marker-end="url(#ah1v)"/>
+      <text x="292" y="216" text-anchor="middle" class="sub" transform="rotate(-90 292 216)">4 candidates</text>
+      <!-- escalation -> validator -->
+      <path d="M270 184 C 302 184, 296 318, 322 318" class="flow" stroke="#d29922" stroke-dasharray="5 4" marker-end="url(#ah1w)"/>
+      <!-- seed -> zoo (registry build) -->
+      <path d="M460 136 V152" class="flow" stroke="#58a6ff" marker-end="url(#ah1)"/>
+      <!-- sandbox feeds validator -->
+      <path d="M460 280 V296" class="flow" stroke="#58a6ff" marker-end="url(#ah1)"/>
+      <text x="474" y="292" class="sub">exec traces</text>
+      <!-- validator -> store -->
+      <path d="M471 352 V368" class="flow" stroke="#3fb950" marker-end="url(#ah1g)"/>
+      <text x="488" y="364" class="sub" fill="#3fb950">accepted only</text>
+      <!-- store -> training -->
+      <path d="M620 400 C 648 400, 644 118, 672 118" class="flow" stroke="#3fb950" marker-end="url(#ah1g)"/>
+      <text x="646" y="300" text-anchor="middle" class="sub" transform="rotate(-90 646 300)">validated JSONL</text>
+      <!-- training -> model -> serving -->
+      <path d="M820 156 V172" class="flow" stroke="#3fb950" marker-end="url(#ah1g)"/>
+      <path d="M820 312 V328" class="flow" stroke="#3fb950" marker-end="url(#ah1g)"/>
+      <!-- serving -> corrector (rollouts) : down, across, up -->
+      <path d="M820 400 V560 H151 V280" class="flow" stroke="#bc8cff" stroke-dasharray="6 4" marker-end="url(#ah1v)"/>
+      <text x="480" y="552" text-anchor="middle" class="sub" fill="#bc8cff">student rollouts (:8001) → sandbox judge</text>
+      <!-- corrector -> training (DPO pairs) -->
+      <path d="M270 252 C 420 252, 520 118, 672 118" class="flow" stroke="#bc8cff" stroke-dasharray="6 4" marker-end="url(#ah1v)"/>
+      <text x="430" y="244" text-anchor="middle" class="sub" fill="#bc8cff">DPO pairs (failed student, fixed teacher)</text>
+      <!-- legend -->
+      <rect x="322" y="472" width="298" height="52" rx="8" fill="#1c2333" stroke="#30363d"/>
+      <text x="334" y="492" class="sub" fill="#58a6ff">— control / data</text>
+      <text x="334" y="510" class="sub" fill="#3fb950">— validated artifacts</text>
+      <text x="470" y="492" class="sub" fill="#bc8cff">- - teacher content</text>
+      <text x="470" y="510" class="sub" fill="#d29922">- - escalation</text>
+    </g>
+  </svg>
+  </div>
+
+  <!-- ================= 3. DATA PIPELINE ================= -->
+  <h2><span class="num">3</span> Data pipeline — seed to training shard</h2>
+  <p class="lead">Every token's journey: structured seed → teacher candidates → parse/median-select →
+  ten gates → immutable JSONL shard → splits → the right consumer. Red exits are counted against the
+  teacher; amber exits get one self-correction retry before the seed is re-qualified.</p>
+
+  <div class="diagram">
+  <svg viewBox="0 0 1000 680" role="img" aria-label="Why5 synthetic data pipeline from seeds to training shards">
+    <defs>
+      <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#58a6ff"/>
+      </marker>
+      <marker id="ah2g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#3fb950"/>
+      </marker>
+      <marker id="ah2r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#f85149"/>
+      </marker>
+      <marker id="ah2w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#d29922"/>
+      </marker>
+    </defs>
+    <style>
+      .dp text { fill:#e6edf3; font-size:12px; }
+      .dp .sub { fill:#8b949e; font-size:10.5px; }
+      .dp .flow { fill:none; stroke-width:1.6; }
+      .dp .dia { fill:#1c2333; stroke:#58a6ff; stroke-width:1.2; }
+    </style>
+    <g class="dp">
+      <!-- ===== main flow row ===== -->
+      <rect x="20" y="60" width="150" height="76" rx="8" class="bp"/>
+      <text x="95" y="82" text-anchor="middle">Seed spec</text>
+      <text x="95" y="99" text-anchor="middle" class="sub">intent × graph × faults</text>
+      <text x="95" y="114" text-anchor="middle" class="sub">× distractor registry</text>
+      <text x="95" y="129" text-anchor="middle" class="sub" fill="#bc8cff">gold depth (rubric)</text>
+
+      <path d="M170 98 H206" class="flow" stroke="#58a6ff" marker-end="url(#ah2)"/>
+
+      <rect x="210" y="60" width="160" height="76" rx="8" class="bp boxv"/>
+      <text x="290" y="82" text-anchor="middle">Teacher generation</text>
+      <text x="290" y="99" text-anchor="middle" class="sub">× 4 candidates · T=0.7/1.0</text>
+      <text x="290" y="114" text-anchor="middle" class="sub">Qwen 3.5 4B (tier 3–4)</text>
+      <text x="290" y="129" text-anchor="middle" class="sub" fill="#d29922">14B+ escalation (tier 5)</text>
+
+      <path d="M370 98 H406" class="flow" stroke="#58a6ff" marker-end="url(#ah2)"/>
+
+      <!-- diamond 1: parse -->
+      <path d="M470 58 L534 98 L470 138 L406 98 Z" class="dia"/>
+      <text x="470" y="94" text-anchor="middle">G1/G2 parse</text>
+      <text x="470" y="110" text-anchor="middle" class="sub">exact N steps?</text>
+
+      <path d="M470 138 V180" class="flow" stroke="#f85149" marker-end="url(#ah2r)"/>
+      <text x="478" y="164" class="sub" fill="#f85149">no</text>
+      <rect x="400" y="184" width="140" height="48" rx="8" class="bp boxr"/>
+      <text x="470" y="204" text-anchor="middle" class="sub" fill="#f85149">format reject →</text>
+      <text x="470" y="220" text-anchor="middle" class="sub" fill="#f85149">teacher acceptance stats</text>
+
+      <path d="M534 98 H570" class="flow" stroke="#58a6ff" marker-end="url(#ah2)"/>
+      <text x="552" y="90" text-anchor="middle" class="sub">yes</text>
+
+      <rect x="574" y="60" width="140" height="76" rx="8" class="bp"/>
+      <text x="644" y="86" text-anchor="middle">Median-length</text>
+      <text x="644" y="103" text-anchor="middle">select (FR-B2)</text>
+      <text x="644" y="122" text-anchor="middle" class="sub">no verbosity bias</text>
+
+      <path d="M714 98 H750" class="flow" stroke="#58a6ff" marker-end="url(#ah2)"/>
+
+      <!-- diamond 2: gates -->
+      <path d="M814 58 L878 98 L814 138 L750 98 Z" class="dia"/>
+      <text x="814" y="94" text-anchor="middle">G3–G10</text>
+      <text x="814" y="110" text-anchor="middle" class="sub">schema · exec · dedup</text>
+
+      <path d="M814 138 V180" class="flow" stroke="#d29922" marker-end="url(#ah2w)"/>
+      <text x="822" y="164" class="sub" fill="#d29922">fail</text>
+      <rect x="744" y="184" width="152" height="48" rx="8" class="bp boxw"/>
+      <text x="820" y="204" text-anchor="middle" class="sub" fill="#d29922">self-correction ×1</text>
+      <text x="820" y="220" text-anchor="middle" class="sub" fill="#d29922">(error fed back) → re-qualify</text>
+      <!-- regen loop back to teacher gen -->
+      <path d="M744 208 H380 V136" class="flow" stroke="#d29922" stroke-dasharray="5 4" marker-end="url(#ah2w)"/>
+
+      <path d="M878 98 H912 V98" class="flow" stroke="#3fb950" marker-end="url(#ah2g)"/>
+
+      <rect x="878" y="60" width="104" height="76" rx="8" class="bp boxg"/>
+      <text x="930" y="82" text-anchor="middle">JSONL shard</text>
+      <text x="930" y="99" text-anchor="middle" class="sub">immutable</text>
+      <text x="930" y="114" text-anchor="middle" class="sub">SHA-256</text>
+      <text x="930" y="129" text-anchor="middle" class="sub" fill="#3fb950">2B tokens</text>
+
+      <!-- ===== class-routes strip ===== -->
+      <rect x="20" y="264" width="340" height="96" rx="8" class="bp"/>
+      <text x="190" y="286" text-anchor="middle">Class routes from the same seeds</text>
+      <text x="34" y="308" class="sub">D3 fault injection → recovery traces</text>
+      <text x="34" y="324" class="sub">D4 no-tool / plain instruction traces</text>
+      <text x="34" y="340" class="sub">D5 forced depth ≠ gold → counterfactual labels</text>
+      <text x="34" y="356" class="sub">D7 programmatic 64K–256K sessions · D8 injections</text>
+      <path d="M360 312 H700 V136" class="flow" stroke="#58a6ff" stroke-dasharray="5 4" marker-end="url(#ah2)"/>
+      <text x="530" y="304" class="sub">routed through the same gates</text>
+
+      <!-- ===== splits + consumers ===== -->
+      <path d="M930 136 V200 H912" class="flow" stroke="#3fb950" marker-end="url(#ah2g)"/>
+      <rect x="700" y="180" width="212" height="52" rx="8" class="bp boxg"/>
+      <text x="806" y="202" text-anchor="middle">Splits by record_id</text>
+      <text x="806" y="220" text-anchor="middle" class="sub">train · val 2% · holdout 1%</text>
+
+      <path d="M700 206 H620 V420 H560" class="flow" stroke="#3fb950" marker-end="url(#ah2g)"/>
+      <path d="M806 232 V420" class="flow" stroke="#3fb950" marker-end="url(#ah2g)"/>
+      <path d="M860 206 H950 V420 H930" class="flow" stroke="#3fb950" marker-end="url(#ah2g)"/>
+
+      <rect x="40" y="424" width="250" height="88" rx="8" class="bp"/>
+      <text x="165" y="446" text-anchor="middle">M2 · SFT</text>
+      <text x="52" y="468" class="sub">D1 why-traces · D2 tool trajectories</text>
+      <text x="52" y="484" class="sub">D3 recovery · D4 no-tool (×1.5 weight)</text>
+      <text x="52" y="500" class="sub">D6 episodes · D8 injection defense</text>
+      <rect x="330" y="424" width="230" height="88" rx="8" class="bp"/>
+      <text x="445" y="446" text-anchor="middle">M4 · calibration head</text>
+      <text x="342" y="468" class="sub">D5 tuples: (task, forced_depth,</text>
+      <text x="342" y="484" class="sub">outcome ∈ degraded / survived /</text>
+      <text x="342" y="500" class="sub">wasteful, reasoning-token cost)</text>
+      <rect x="600" y="424" width="180" height="88" rx="8" class="bp"/>
+      <text x="690" y="446" text-anchor="middle">M1 · long anneal</text>
+      <text x="612" y="468" class="sub">D7 64K→256K curriculum</text>
+      <text x="612" y="484" class="sub">position-uniform facts</text>
+      <text x="612" y="500" class="sub">(no shortcut learning)</text>
+      <rect x="820" y="424" width="162" height="88" rx="8" class="bp"/>
+      <text x="901" y="446" text-anchor="middle">M3 · RL prompts</text>
+      <text x="832" y="468" class="sub">seed env episodes</text>
+      <text x="832" y="484" class="sub">sandbox-grounded</text>
+      <text x="832" y="500" class="sub">GRPO reward</text>
+
+      <!-- ===== on-policy loop strip ===== -->
+      <rect x="40" y="556" width="942" height="84" rx="8" class="bp boxv" stroke-dasharray="6 4"/>
+      <text x="511" y="580" text-anchor="middle" fill="#bc8cff" font-weight="700">POST-SFT · on-policy correction loop (Stage 4)</text>
+      <text x="511" y="602" text-anchor="middle" class="sub">student rollout on held-out seed (:8001) → sandbox judge (no teacher scoring) → teacher-corrected trace for the same seed</text>
+      <text x="511" y="620" text-anchor="middle" class="sub">→ DPO pairs (rejected = student's own failure, chosen = gate-clean fix) → dpo_train.py → GRPO init</text>
+      <path d="M165 512 V556" class="flow" stroke="#bc8cff" stroke-dasharray="6 4" marker-end="url(#ah2)"/>
+    </g>
+  </svg>
+  </div>
+
+  <!-- ================= 4. PIPELINE ================= -->
+  <h2><span class="num">4</span> The five-stage pipeline <span style="font-size:13px;color:var(--muted);font-weight:400;">(click a stage to expand)</span></h2>
+  <p class="lead">Implemented in <code>distill/why5_distill/</code> — every stage runs offline in mock mode:
+  <code>MOCK=1 ./run_distillation.sh</code>.</p>
+
+  <div class="flow" id="flow">
+
+    <div class="stage open">
+      <div class="stage-head"><span class="chip">Stage 0</span><span class="name">Teacher preparation &amp; calibration</span><span class="when">week 1–2</span><span class="caret">▶</span></div>
+      <div class="stage-body"><div class="stage-body-inner">
+        Serve Qwen 3.5 4B on vLLM and run the <b>format adapter</b>: factory seeds → Hermes-style chat
+        prompts; teacher output → parsed <code>&lt;why&gt;</code> blocks. A 2,000-seed calibration run
+        measures per-tier gate pass rates: <b>≥ 60% acceptance on tiers 3–4 keeps the 4B as bulk teacher;
+        tier-5 acceptance &lt; 40% routes MAX-depth work to an escalation teacher</b> (the 4B ceiling shows
+        up on the hardest depth first).
+        <ul>
+          <li><code>why5_distill/teacher.py</code> — adapter + parser, mock mode included</li>
+        </ul>
+      </div></div>
+    </div>
+    <div class="connector">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="chip">Stage 1</span><span class="name">Bulk trace distillation</span><span class="when">week 3–8</span><span class="caret">▶</span></div>
+      <div class="stage-body"><div class="stage-body-inner">
+        The factory generates the corpus with the teacher plugged into <code>TraceGenerator</code>.
+        The seed's structure (depth, call graph, faults, distractor tools) is <b>given</b>; the teacher
+        fills in why-content. Four candidates per seed → parse → median-select → all ten gates
+        (G1–G10) → JSONL shard.
+        <ul>
+          <li>Tier quotas enforced at storage: <b>40 / 40 / 20</b> for depths 3/4/5</li>
+          <li>Teacher-vs-rubric routing disagreements are logged and audited — not silently kept or dropped</li>
+          <li><code>why5_distill/gen_corpus.py</code></li>
+        </ul>
+      </div></div>
+    </div>
+    <div class="connector">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="chip">Stage 2</span><span class="name">Escalation for hard traces</span><span class="when">week 5–8</span><span class="caret">▶</span></div>
+      <div class="stage-body"><div class="stage-body-inner">
+        Gold-MAX (tier-5) seeds and all D5 counterfactual <b>verification passes</b> go to a larger
+        same-family teacher. Budget-capped at ≤ 20% of teacher tokens — if it exceeds that, the tier-5
+        rubric itself is re-audited (are we over-injecting <code>retry_reasoning</code>?).
+      </div></div>
+    </div>
+    <div class="connector">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="chip">Stage 3</span><span class="name">Student SFT on the distilled corpus</span><span class="when">week 13–16</span><span class="caret">▶</span></div>
+      <div class="stage-body"><div class="stage-body-inner">
+        Standard SFT with protocol-aware <b>loss masking</b>: supervise only the depth token, why-steps,
+        plan, tool-call arguments and final answer; mask system/user/tool-result spans. Two distillation-
+        specific touches:
+        <ul>
+          <li><b>Anti-imitation upweight</b> — no-tool/refusal traces get loss weight ×1.5 (small models
+          under-generate refusal, and would inherit that bias)</li>
+          <li><b>Optional logit KD</b> (<code>--kd β</code>) — forward KL on supervised positions only,
+          <b>never on protocol control tokens</b>, so the teacher cannot soften the depth contract.
+          Requires the Qwen tokenizer on the student (exact token-ID alignment)</li>
+          <li><code>why5_distill/sft_data.py</code> + <code>train_sft.py</code></li>
+        </ul>
+      </div></div>
+    </div>
+    <div class="connector">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="chip">Stage 4</span><span class="name">On-policy correction → DPO</span><span class="when">week 13–18</span><span class="caret">▶</span></div>
+      <div class="stage-body"><div class="stage-body-inner">
+        The highest-leverage step. The <b>student</b> rolls out on fresh held-out seeds; the
+        <b>sandbox judges</b> (no teacher scoring → no bias, no reward-hacking surface); failures get a
+        teacher-corrected trace for the same seed → <b>(failed student, corrected teacher) DPO pairs</b>.
+        Teaching is aimed at exactly the states where this student actually errs.
+        <ul>
+          <li><code>why5_distill/on_policy.py</code> + <code>dpo_train.py</code></li>
+        </ul>
+      </div></div>
+    </div>
+
+  </div>
+
+  <!-- ================= 3. REQUEST/RESPONSE ================= -->
+  <h2><span class="num">5</span> Anatomy of one distillation exchange</h2>
+  <p class="lead">A real tier-4 seed from the factory — "Order 8830 failed to pay twice — diagnose it and
+  issue a refund if allowed." Note what is <b>not</b> in the request: the gold call graph stays on the
+  factory side as judging ground truth, and the depth (4) is dictated by the rubric, not asked of the teacher.</p>
+
+  <div class="split">
+    <div class="term">
+      <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="title">REQUEST → POST :8000/v1/chat/completions</span></div>
+      <pre>{
+  <span class="k">"model"</span>: <span class="s">"Qwen/Qwen3.5-4B"</span>,
+  <span class="k">"messages"</span>: [
+    { <span class="k">"role"</span>: <span class="s">"system"</span>, <span class="k">"content"</span>:
+      <span class="s">"You MUST respond with exactly <span class="num-c">4</span> why-steps
+       inside &lt;why&gt;...&lt;/why&gt; tags ..."</span> },
+    { <span class="k">"role"</span>: <span class="s">"user"</span>, <span class="k">"content"</span>:
+      <span class="s">"Task: Order 8830 failed to pay twice ...
+
+       Available tools:
+       [ 12 JSON Schemas — 4 correct tools
+         + 8 distractors with ambiguous
+         names: get_record_by_id,
+         shipment_entry, payroll_entry ]
+
+       Reason in exactly 4 why-steps.
+       Step focus: 1 intent · 2 gaps ·
+       3 tool mapping · 4 ordering/risks"</span> }
+  ],
+  <span class="k">"temperature"</span>: <span class="num-c">0.7</span>,
+  <span class="k">"top_p"</span>: <span class="num-c">0.95</span>
+}</pre>
+    </div>
+    <div class="term">
+      <div class="term-bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="title">RESPONSE ← teacher (vLLM)</span></div>
+      <pre>{
+  <span class="k">"choices"</span>: [{ <span class="k">"message"</span>: { <span class="k">"role"</span>: <span class="s">"assistant"</span>,
+    <span class="k">"content"</span>: <span class="s">"
+<span class="tag-why">&lt;why&gt;</span>1. What does the user actually need?
+   Diagnosis of the double payment failure,
+   refund only if policy allows it.<span class="tag-why">&lt;/why&gt;</span>
+<span class="tag-why">&lt;why&gt;</span>2. What information is missing? The order
+   record, the payment-attempt log with
+   failure codes, the policy verdict.<span class="tag-why">&lt;/why&gt;</span>
+<span class="tag-why">&lt;why&gt;</span>3. Which tools provide it? get_order,
+   get_payment_log, check_refund_
+   eligibility, create_refund.<span class="tag-why">&lt;/why&gt;</span>
+<span class="tag-why">&lt;why&gt;</span>4. What could fail / ordering? Later calls
+   consume earlier outputs; refund must
+   wait for the eligibility verdict.<span class="tag-why">&lt;/why&gt;</span>"</span> }}
+  ],
+  <span class="k">"usage"</span>: { <span class="k">"prompt_tokens"</span>: <span class="num-c">1187</span>,
+             <span class="k">"completion_tokens"</span>: <span class="num-c">214</span> }
+}</pre>
+    </div>
+  </div>
+
+  <div class="note"><b>What happens to this response:</b> the parser accepts it only because it contains
+  exactly 4 <code>&lt;why&gt;</code> blocks (G2). Of 4 sampled candidates, the median-length valid one is kept.
+  The teacher's text is the <i>only</i> thing taken — the factory wraps it with its own depth token, plan,
+  sandbox-verified tool calls with concrete resolved arguments, and final answer. A candidate with 3 or 5
+  steps is format-rejected and counts against the teacher's acceptance metric, never against the record.</div>
+
+  <!-- ================= 4. ON-POLICY LOOP ================= -->
+  <h2><span class="num">6</span> The on-policy correction loop (Stage 4)</h2>
+  <p class="lead">Where distillation stops being imitation. The student's own mistakes become the
+  curriculum, and the environment — not the teacher — decides what a mistake is.</p>
+
+  <div class="loop">
+    <div class="node"><div class="icon">🎲</div><b>1 · Fresh seed</b><p>Held-out stream (rng seed 777), never seen in SFT. Depth forced to rubric gold.</p></div>
+    <div class="node"><div class="icon">🤖</div><b>2 · Student rollout</b><p>SFT checkpoint generates depth + whys + tool calls via its serve endpoint (:8001).</p></div>
+    <div class="node cold"><div class="icon">⚖️</div><b>3 · Sandbox judge</b><p>Parse (G1) → schema-valid args (G3) → executable trajectory (G4/G5). <b>No teacher scoring.</b></p></div>
+    <div class="node hot"><div class="icon">❌</div><b>4 · On failure</b><p>Failure mode recorded: malformed JSON, schema mismatch, phantom tool, unexecutable order.</p></div>
+    <div class="node"><div class="icon">🧑‍🏫</div><b>5 · Teacher fix</b><p>Teacher regenerates for the <i>same seed</i> with the failure explanation appended → full gates.</p></div>
+    <div class="node"><div class="icon">⚖</div><b>6 · DPO pair</b><p>chosen = gate-clean teacher fix · rejected = the student's raw failed rollout (malformed parts kept as-is).</p></div>
+  </div>
+
+  <div class="note"><b>Yield gate:</b> ≥ 50% of failed rollouts must yield a valid teacher correction — the
+  pipeline warns below that (plan §7). Post-DPO, the student's repeat-failure rate on the same seeds should
+  drop to ≤ 20% of its pre-DPO rate.</div>
+
+  <!-- ================= 5. DEPTH DEMO ================= -->
+  <h2><span class="num">7</span> What the student learns to emit <span style="font-size:13px;color:var(--muted);font-weight:400;">(interactive)</span></h2>
+  <p class="lead">The serialized protocol the student is SFT'd on. Pick a complexity tier — watch the depth
+  token and step count change together, FSM-enforced at serve time.</p>
+
+  <div class="depth-demo">
+    <div class="depth-btns">
+      <button class="dbtn active" data-depth="3" onclick="setDepth(3,this)">3 whys<small>LOW · single-hop lookups</small></button>
+      <button class="dbtn" data-depth="4" onclick="setDepth(4,this)">4 whys<small>HIGH · dependent chains</small></button>
+      <button class="dbtn" data-depth="5" onclick="setDepth(5,this)">5 whys<small>MAX · revision + retries</small></button>
+    </div>
+    <div id="protoOut"></div>
+  </div>
+
+  <!-- ================= 6. GATES + GUARDRAILS ================= -->
+  <h2><span class="num">8</span> Gates and guardrails</h2>
+  <p class="lead">Every record — teacher-generated or student-corrected — passes all ten gates before it
+  can touch a training shard. Loaders reject anything without <code>validation.passed = true</code>.</p>
+
+  <div class="gates">
+    <div class="gate"><b>G1</b> protocol parse<span>FSM-parsable, no errors</span></div>
+    <div class="gate"><b>G2</b> depth exactness<span>why-count == declared == gold</span></div>
+    <div class="gate"><b>G3</b> schema validity<span>args match JSON Schema</span></div>
+    <div class="gate"><b>G4</b> graph fidelity<span>executed == expected graph</span></div>
+    <div class="gate"><b>G5</b> behavioral success<span>sandbox end-state correct</span></div>
+    <div class="gate"><b>G6</b> retry sanity<span>≤ 3, each with stated reason</span></div>
+    <div class="gate"><b>G7</b> no phantom tools<span>registry-only calls</span></div>
+    <div class="gate"><b>G8</b> decontamination<span>no benchmark n-gram overlap</span></div>
+    <div class="gate"><b>G9</b> PII / secrets<span>scrubbed</span></div>
+    <div class="gate"><b>G10</b> dedup<span>no near-duplicate traces</span></div>
+  </div>
+
+  <table>
+    <tr><th>Guardrail</th><th>Rule</th><th>Why</th></tr>
+    <tr class="me"><td><b>Step counts</b></td><td class="mut">rubric-only supervision + FSM enforcement; excluded from KL</td><td class="mut">teacher "usually does 4 whys" is noise, not signal</td></tr>
+    <tr><td><b>Termination judgment</b></td><td class="mut">learned from RL on environment reward, never imitated</td><td class="mut">teacher termination behavior produces loops</td></tr>
+    <tr><td><b>Injection resistance (D8)</b></td><td class="mut">template-labeled correct behavior only</td><td class="mut">a 4B teacher is itself injection-susceptible</td></tr>
+    <tr><td><b>RL reward</b></td><td class="mut">environment-grounded; teacher agreement only as a small, decayed auxiliary</td><td class="mut">teacher scoring is a reward-hacking surface</td></tr>
+  </table>
+
+  <footer>
+    Why5 program · references:
+    <a href="../DISTILLATION_PLAN_QWEN35_4B.md">DISTILLATION_PLAN_QWEN35_4B.md</a> ·
+    <a href="../distill/README.md">distill/README.md</a> (runnable scripts, verified in mock mode) ·
+    <a href="../SYNTHETIC_DATA_PLAN.md">SYNTHETIC_DATA_PLAN.md</a> ·
+    page generated for engineering review.
+  </footer>
+</div>
+
+<script>
+  // stage accordions
+  document.querySelectorAll('.stage-head').forEach(h =>
+    h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
+
+  // depth-selector demo data (mirrors why5_synth STEP_QUESTIONS curriculum)
+  const WHYS = {
+    3: [
+      ["What is the user actually asking for?", "the core intent and its verifiable deliverable"],
+      ["What information is missing?", "entity IDs and state that only tools can provide"],
+      ["Which tool provides it, and is this feasible?", "a direct mapping from gaps to registry tools"]
+    ],
+    4: [
+      ["What is the user actually asking for?", "the core intent and its verifiable deliverable"],
+      ["What information is missing?", "entity IDs and state that only tools can provide"],
+      ["Which tool provides it, and is this feasible?", "a direct mapping from gaps to registry tools"],
+      ["What could fail, and in what order must calls run?", "dependencies, branches, contingency handling"]
+    ],
+    5: [
+      ["What is the user actually asking for?", "the core intent and its verifiable deliverable"],
+      ["What information is missing?", "entity IDs and state that only tools can provide"],
+      ["Which tool provides it, and is this feasible?", "a direct mapping from gaps to registry tools"],
+      ["What could fail, and in what order must calls run?", "dependencies, branches, contingency handling"],
+      ["What could my earlier reasoning have gotten wrong?", "explicit revision of steps 1–4 before acting"]
+    ]
+  };
+  const PLANS = {
+    3: "get_order(4451)",
+    4: "get_order → get_payment_log → check_refund_eligibility → create_refund",
+    5: "list_customer_orders → get_payment_log → check_refund_eligibility → create_refund → send_email"
+  };
+  function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+  function setDepth(n, btn) {
+    document.querySelectorAll('.dbtn').forEach(b=>b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const out = document.getElementById('protoOut');
+    let html = `<div class="proto-line"><b>&lt;|depth_${n}|&gt;</b>   ← rubric label; KL never touches this token</div>`;
+    WHYS[n].forEach((w,i) => {
+      html += `<div class="whybox" style="animation-delay:${i*90}ms"><span class="wn">&lt;why n="${i+1}"&gt;</span> ${esc(w[0])}<br><span style="color:var(--muted)">→ ${esc(w[1])}</span> <span class="wn">&lt;/why&gt;</span></div>`;
+    });
+    html += `<div class="proto-line"><b>&lt;plan&gt;</b> ${esc(PLANS[n])} <b>&lt;/plan&gt;</b></div>`;
+    html += `<div class="proto-line"><b>&lt;tool_call&gt;</b> {"name":"…","arguments":{ …concrete resolved values… }} <b>&lt;/tool_call&gt;</b>   ← sandbox-verified, G3/G5</div>`;
+    html += `<div class="proto-line"><b>&lt;final&gt;</b> user-facing answer <b>&lt;/final&gt;</b></div>`;
+    out.innerHTML = html;
+  }
+  setDepth(3, document.querySelector('.dbtn'));
+</script>
+</body>
+</html>

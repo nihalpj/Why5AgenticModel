@@ -1,0 +1,6 @@
+[18:11:08][ INFO][logger] file log started: /usr/Storage/Why5AgenticModel/benchmark/logs/bench_20261014_181108.log
+[18:11:08][ INFO][bench] mode=mock endpoint=None model=None n=30 curve_n=0 inject_flaws=1
+[18:11:08][ INFO][suite] 10/30 | ok=8 | forced=auto | tiers={3: 8, 4: 2}
+[18:11:08][ INFO][suite] 20/30 | ok=10 | forced=auto | tiers={3: 12, 4: 6, 5: 2}
+[18:11:08][ INFO][suite] 30/30 | ok=14 | forced=auto | tiers={3: 12, 4: 12, 5: 6}
+[18:11:08][ERROR][bench] DONE all_gates_pass=False task_success=46.7% report=benchmark_flawed.json

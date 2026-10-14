@@ -1,0 +1,8 @@
+[18:11:29][ INFO][logger] file log started: /usr/Storage/Why5AgenticModel/benchmark/logs/bench_20261014_181129.log
+[18:11:29][ INFO][bench] mode=mock endpoint=None model=None n=20 curve_n=0 inject_flaws=1
+[18:11:29][ WARN][suite] example failure #1 seed=seed_e037f7b3816c gold=3 chosen=3 why_n=3 failed_checks=['tool_order', 'schema_valid', 'exec_success', 'task_success']
+[18:11:29][ WARN][suite] example failure #2 seed=seed_b3de0b16dd47 gold=4 chosen=3 why_n=4 failed_checks=['step_exact', 'task_success', 'depth_correct']
+[18:11:29][ INFO][suite] 10/20 | ok=8 | forced=auto | tiers={3: 8, 4: 2}
+[18:11:29][ WARN][suite] example failure #3 seed=seed_84f10066e6db gold=5 chosen=5 why_n=5 failed_checks=['tool_order', 'task_success']
+[18:11:29][ INFO][suite] 20/20 | ok=10 | forced=auto | tiers={3: 8, 4: 8, 5: 4}
+[18:11:29][ERROR][bench] DONE all_gates_pass=False task_success=50.0% report=/tmp/bench_flawed.json

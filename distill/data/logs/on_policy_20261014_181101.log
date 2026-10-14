@@ -1,0 +1,8 @@
+[18:11:01][ INFO][logger] file log started: data/logs/on_policy_20261014_181101.log
+[18:11:01][ INFO][onpolicy] student=ckpt/mock-why5-sft mock=True n=15 out=data/dpo_pairs.jsonl
+[18:11:01][ WARN][onpolicy] FAIL seed=seed_04f23fe2199f gold=4 modes=protocol_parse
+[18:11:01][ WARN][onpolicy] FAIL seed=seed_675e61846460 gold=5 modes=protocol_parse
+[18:11:01][ INFO][onpolicy] 10/15 rollouts | pass=8 fail=2 pairs=2 yield=100%
+[18:11:01][ WARN][onpolicy] FAIL seed=seed_b4bd82c31a00 gold=5 modes=protocol_parse
+[18:11:01][ INFO][onpolicy] DONE pairs=3 written to data/dpo_pairs.jsonl | pass=12 fix_failed=0 yield=100%
+[18:11:01][ WARN][onpolicy] failure-mode protocol_parse: 3

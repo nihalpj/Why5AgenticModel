@@ -1,0 +1,34 @@
+{
+  "datasets": {
+    "D1": [
+      {
+        "shard": "d1-shard-0000",
+        "file": "d1_why_traces/d1-shard-0000.jsonl",
+        "records": 400,
+        "sha256": "bd5c95f1e78dfc8d4ea0104c3d149a2d247944422091e911b9cdd9c22fddc825"
+      }
+    ],
+    "D3": [
+      {
+        "shard": "d3-shard-0000",
+        "file": "d3_recovery/d3-shard-0000.jsonl",
+        "records": 80,
+        "sha256": "ae913dee7d0ac727b707ac6e16afcc5b0ac1d9ae1d91376203c8d69a89b2ae9b"
+      }
+    ],
+    "D5": [
+      {
+        "shard": "d5-shard-0000",
+        "file": "d5_counterfactual/d5-shard-0000.jsonl",
+        "records": 200,
+        "sha256": "ba772fea925db3a2476c9f1209a1077bd28b0d2bc30df5a2dcc53a0eede410cd"
+      }
+    ]
+  },
+  "counts": {
+    "D1": 400,
+    "D3": 80,
+    "D5": 200
+  },
+  "total_records": 680
+}

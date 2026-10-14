@@ -1,0 +1,22 @@
+{
+  "records": {
+    "D1": 60,
+    "D5": 10
+  },
+  "d1_depth_distribution": {
+    "3": 24,
+    "4": 24,
+    "5": 12
+  },
+  "teacher": {
+    "format_acceptance": 1.0,
+    "sampled": 332,
+    "valid": 332,
+    "format_reject": 0,
+    "accepted": 83
+  },
+  "stats": {
+    "seeds": 72,
+    "rejected": 12
+  }
+}

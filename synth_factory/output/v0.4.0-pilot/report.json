@@ -1,0 +1,18 @@
+{
+  "stats": {
+    "generated": 1191,
+    "accepted_D1": 400,
+    "rejected_D1": 339,
+    "quota_skip": 1805,
+    "accepted_D3": 80,
+    "rejected_D3": 116,
+    "rejected_D5": 56,
+    "accepted_D5": 200
+  },
+  "depth_distribution": {
+    "3": 160,
+    "4": 160,
+    "5": 80
+  },
+  "acceptance_rate": 0.5412719891745602
+}
