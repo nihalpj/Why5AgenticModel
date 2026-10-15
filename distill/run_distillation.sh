@@ -26,6 +26,11 @@ TEACHER_URL="${TEACHER_URL:-http://localhost:8000}"
 VENV_DIR="${VENV_DIR:-${WORK_DIR:-${HOME:-/root}/why5}/venv}"   # setup's venv
 STUDENT_CKPT="ckpt/why5-sft"
 
+# HF cache: same location the setup script uses (set BEFORE any hf/vllm call
+# so START_TEACHER never re-downloads the model into ~/.cache as a 2nd copy)
+DATA_ROOT="${DATA_ROOT:-$(ls -d /data 2>/dev/null || echo "${HOME:-/root}")}"
+export HF_HOME="${HF_HOME:-$DATA_ROOT/hf_cache}"
+
 MOCK_FLAG=""
 if [ "$MOCK" = "1" ]; then
   MOCK_FLAG="--mock"
@@ -119,26 +124,86 @@ if [ "$MOCK" != "1" ]; then
   fi
 fi
 
+# ---- teacher model download: ensure weights are in HF_HOME before serving --
+model_cached() {  # $1 = repo id -> 0 if already in HF cache (offline check)
+  HF_HUB_OFFLINE=1 "$PYBIN" - "$1" <<'PY' >/dev/null 2>&1
+import sys
+try:
+    from huggingface_hub import snapshot_download
+    snapshot_download(sys.argv[1], local_files_only=True)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+PY
+}
+download_model() {  # $1 = repo id
+  echo "downloading teacher model: $1 -> HF_HOME=$HF_HOME"
+  if ! "$PYBIN" - "$1" <<'PY'
+import sys
+from huggingface_hub import snapshot_download
+snapshot_download(sys.argv[1],
+                  ignore_patterns=["*.pth", "*.gguf", "*.bin", "original/*"])
+PY
+  then
+    echo "ERROR: model download failed. Fix manually:" >&2
+    echo "  $PYBIN -m pip install 'huggingface_hub[cli,hf_transfer]'" >&2
+    echo "  $PYBIN -c \"from huggingface_hub import snapshot_download; snapshot_download('$1')\"" >&2
+    exit 2
+  fi
+  echo "teacher model ready: $1"
+}
+
 # ---- teacher preflight: real mode needs the vLLM teacher on :8000 -----------
 if [ "$MOCK" != "1" ]; then
-  if ! curl -sf -o /dev/null --max-time 5 "$TEACHER_URL/v1/models"; then
+  serve_flags="--max-model-len 8192 --gpu-memory-utilization $VLLM_MEM_UTIL"
+  [ "$GPU_ID" = "5090" ] && export VLLM_ATTENTION_BACKEND="$VLLM_BACKEND"
+  start_teacher() {
+    LOG_TAG="teacher"
+    mkdir -p data/logs
+    echo "starting teacher in background: data/logs/teacher_serve.log"
+    nohup "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" \
+        --port 8000 $serve_flags \
+        > data/logs/teacher_serve.log 2>&1 &
+    echo $! > data/logs/teacher_serve.pid
+    echo "waiting for startup (up to 15 min; model download included)..."
+    for i in $(seq 1 180); do
+      sleep 5
+      if curl -sf -o /dev/null --max-time 3 "$TEACHER_URL/v1/models"; then
+        echo "teacher is UP at $TEACHER_URL"
+        return 0
+      fi
+    done
+    echo "teacher did not come up in 15 min — last log lines:" >&2
+    tail -20 data/logs/teacher_serve.log >&2
+    echo "check: tail -f data/logs/teacher_serve.log" >&2
+    exit 2
+  }
+
+  if curl -sf -o /dev/null --max-time 5 "$TEACHER_URL/v1/models"; then
+    echo "teacher OK at $TEACHER_URL"
+  elif [ "${START_TEACHER:-0}" = "1" ]; then
+    download_model "$TEACHER_MODEL"   # skipped if already in HF cache
+    start_teacher
+  else
     cat >&2 <<EOF
 
 ERROR: teacher not reachable at $TEACHER_URL — start it first, then re-run.
 
+  Easiest (this script starts and waits for it in the background):
+    START_TEACHER=1 ./run_distillation.sh
+
+  Or manually, in a separate terminal:
   # 5090 (32GB Blackwell):
   VLLM_ATTENTION_BACKEND=FLASHINFER "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" \\
-      --port 8000 --max-model-len 8192 --gpu-memory-utilization $VLLM_MEM_UTIL
+      --port 8000 $serve_flags
   # 4090 (24GB Ada):
-  "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" \\
-      --port 8000 --max-model-len 8192 --gpu-memory-utilization 0.85
+  "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" --port 8000 $serve_flags
 
 Wait for "Application startup complete", then re-run this script.
 (Offline? MOCK=1 ./run_distillation.sh needs no server.)
 EOF
     exit 2
   fi
-  echo "teacher OK at $TEACHER_URL"
 fi
 
 echo "== Stage 0/1: corpus generation with Qwen 3.5 teacher =="
