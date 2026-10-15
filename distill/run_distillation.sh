@@ -143,9 +143,13 @@ if [ "$MOCK" != "1" ]; then
   # vLLM: needed to SERVE the teacher (big install; only when missing)
   if ! "$PYBIN" -c "import vllm" >/dev/null 2>&1; then
     echo "installing vLLM ${VLLM_VERSION} (large download — pulls torch; several minutes)"
-    "$PYBIN" -m pip install -q "vllm==${VLLM_VERSION}" || {
+    # transformers pin: vLLM 0.9.x registers custom configs (aimv2/ovis) that
+    # newer transformers already ship natively -> "already used" ValueError
+    "$PYBIN" -m pip install -q "vllm==${VLLM_VERSION}" "transformers>=4.51.1,<4.53" || {
       echo "ERROR: vLLM install failed. run manually:" >&2
-      echo "  $PYBIN -m pip install 'vllm==${VLLM_VERSION}'" >&2
+      echo "  $PYBIN -m pip install 'vllm==${VLLM_VERSION}' 'transformers>=4.51.1,<4.53'" >&2
+      echo "  (if import vllm then fails with \"'aimv2' is already used\": your" >&2
+      echo "   transformers is too new for this vLLM — downgrade as above)" >&2
       exit 2
     }
     echo "vLLM installed OK"

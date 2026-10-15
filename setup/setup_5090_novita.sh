@@ -282,7 +282,10 @@ if [ "$MODELS_ONLY" -eq 0 ]; then
 
   if [ "$WITH_TRAIN_DEPS" -eq 1 ]; then
     LOG "installing training stack (torch deps: transformers/trl/datasets/accelerate)"
-    $PIP install -q "transformers>=4.51" "trl>=0.17" "datasets>=3.0" accelerate \
+    # transformers pinned <4.53: vLLM 0.9.x registers custom configs (aimv2/ovis)
+    # that newer transformers ships natively -> import vllm crashes with
+    # "'aimv2' is already used by a Transformers config"
+    $PIP install -q "transformers>=4.51.1,<4.53" "trl>=0.17" "datasets>=3.0" accelerate \
       sentencepiece tensorboard bitsandbytes
     # deepspeed is optional (ZeRO offload alternative to 8-bit AdamW for 24GB);
     # separate so a failed install never blocks the rest

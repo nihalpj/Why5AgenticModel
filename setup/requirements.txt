@@ -17,7 +17,7 @@ numpy
 
 # --- training stack ----------------------------------------------------------
 torch>=2.7            # on RTX 5090: pip install torch --index-url .../whl/cu128
-transformers>=4.51
+transformers>=4.51.1,<4.53   # <4.53 required: vLLM 0.9.x conflicts (aimv2/ovis config)
 trl>=0.17
 datasets>=3.0
 accelerate
