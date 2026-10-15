@@ -28,14 +28,18 @@ banner() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 
 # ---- resolve python: venv from setup_5090_novita.sh, then system python ----
 find_python() {
-  for p in "${WHY5_VENV:-}/bin/python" \
+  for p in "${WHY5_VENV:-}" \
            "${WORK_DIR:-${HOME:-/root}/why5}/venv/bin/python" \
-           "${HOME:-/root}/why5/venv/bin/python" \
-           /usr/local/bin/python3 /usr/bin/python3; do
+           "${HOME:-/root}/why5/venv/bin/python"; do
     [ -n "$p" ] && [ -x "$p" ] && { echo "$p"; return 0; }
   done
-  command -v python3 >/dev/null 2>&1 && { command -v python3; return 0; }
-  command -v python >/dev/null 2>&1 && { command -v python; return 0; }
+  # PATH interpreter first (venv users often activate one); hard-coded
+  # absolute paths only as last resort
+  if command -v python3 >/dev/null 2>&1; then command -v python3; return 0; fi
+  if command -v python >/dev/null 2>&1; then command -v python; return 0; fi
+  for p in /usr/local/bin/python3 /usr/bin/python3; do
+    [ -x "$p" ] && { echo "$p"; return 0; }
+  done
   return 1
 }
 if ! PYBIN=$(find_python); then

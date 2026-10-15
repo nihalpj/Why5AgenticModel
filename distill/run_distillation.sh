@@ -23,6 +23,7 @@ N_D5="${N_D5:-50}"
 N_ROLLOUTS="${N_ROLLOUTS:-60}"
 TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen3.5-4B}"
 TEACHER_URL="${TEACHER_URL:-http://localhost:8000}"
+VENV_DIR="${VENV_DIR:-${WORK_DIR:-${HOME:-/root}/why5}/venv}"   # setup's venv
 STUDENT_CKPT="ckpt/why5-sft"
 
 MOCK_FLAG=""
@@ -71,14 +72,18 @@ echo "  serving: mem-util=$VLLM_MEM_UTIL backend=${VLLM_BACKEND:-default} | trai
 
 # ---- resolve python: venv from setup_5090_novita.sh, then system python ----
 find_python() {
-  for p in "${WHY5_VENV:-}/bin/python" \
+  for p in "${WHY5_VENV:-}" \
            "${WORK_DIR:-${HOME:-/root}/why5}/venv/bin/python" \
-           "${HOME:-/root}/why5/venv/bin/python" \
-           /usr/local/bin/python3 /usr/bin/python3; do
+           "${HOME:-/root}/why5/venv/bin/python"; do
     [ -n "$p" ] && [ -x "$p" ] && { echo "$p"; return 0; }
   done
-  command -v python3 >/dev/null 2>&1 && { command -v python3; return 0; }
-  command -v python >/dev/null 2>&1 && { command -v python; return 0; }
+  # PATH interpreter first (venv users often activate one); hard-coded
+  # absolute paths only as last resort
+  if command -v python3 >/dev/null 2>&1; then command -v python3; return 0; fi
+  if command -v python >/dev/null 2>&1; then command -v python; return 0; fi
+  for p in /usr/local/bin/python3 /usr/bin/python3; do
+    [ -x "$p" ] && { echo "$p"; return 0; }
+  done
   return 1
 }
 if ! PYBIN=$(find_python); then
