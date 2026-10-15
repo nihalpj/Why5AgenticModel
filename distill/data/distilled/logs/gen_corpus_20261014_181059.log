@@ -1,9 +1,0 @@
-[18:10:59][ INFO][logger] file log started: data/distilled/logs/gen_corpus_20261014_181059.log
-[18:10:59][ INFO][corpus] teacher=mock @ http://localhost:8000/v1 | n=60 n_d5=10 | out=data/distilled
-[18:10:59][ INFO][corpus] tool zoo: 38 tools (v0.4.0-pilot)
-[18:10:59][ INFO][corpus] D1 25/60 accepted | tiers {3: 17, 4: 4, 5: 4} | seeds=25 rej=0 sb_fail=0 teacher_fmt_acc=100%
-[18:10:59][ INFO][corpus] D1 50/60 accepted | tiers {3: 24, 4: 18, 5: 8} | seeds=57 rej=7 sb_fail=0 teacher_fmt_acc=100%
-[18:10:59][ INFO][corpus] D1 complete: 60 records, tiers {3: 24, 4: 24, 5: 12}
-[18:10:59][ INFO][corpus] D5 complete: 10 counterfactual records
-[18:10:59][ INFO][corpus] writing JSONL shards + manifest + splits
-[18:11:00][ INFO][corpus] DONE root=data/distilled/v0.5.0-distill-pilot | D1=60 D5=10 | teacher_fmt_acc=100%

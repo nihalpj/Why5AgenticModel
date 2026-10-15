@@ -13,8 +13,13 @@ Masking policy (Main Plan §4.2):
 import json
 import os
 
-import torch
-from torch.utils.data import Dataset
+try:
+    import torch
+    from torch.utils.data import Dataset
+except ImportError:  # mock/offline use: character-level stand-ins, no tensors
+    torch = None
+    class Dataset:  # minimal shim preserving __len__/__getitem__ protocol
+        pass
 
 # Control tokens emitted by the serialized protocol; the tokenizer must know
 # them (add_special_tokens at model load time; see train_sft.py).

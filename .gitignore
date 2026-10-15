@@ -1,0 +1,108 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+.installed.cfg
+MANIFEST
+
+# ── Virtual Environments ───────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+
+# ── Jupyter / IPython ─────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# ── ML / Training Artifacts ───────────────────────────────────────────────────
+# Model checkpoints & weights
+checkpoints/
+*.ckpt
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+*.ggml
+
+# Hugging Face cache
+.cache/
+huggingface/
+
+# Training runs / experiment tracking
+runs/
+wandb/
+mlruns/
+outputs/
+logs/
+*.log
+*.log.*
+
+# Datasets & generated data
+data/
+datasets/
+*.jsonl
+*.parquet
+*.arrow
+*.csv
+*.tsv
+!**/seeds/**/*.csv     # keep seed files if any
+
+# ── Distillation / Synth Factory Outputs ──────────────────────────────────────
+synth_factory/output/
+synth_factory/generated/
+distill/output/
+distill/runs/
+distill/checkpoints/
+
+# ── Benchmark Outputs ─────────────────────────────────────────────────────────
+benchmark/results/
+benchmark/*.json
+benchmark/*.csv
+
+# ── Secrets & Credentials ─────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+secrets/
+.secrets/
+config/local.yaml
+config/local.yml
+
+# ── OS & Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
+tmp/
+temp/
+scratch/

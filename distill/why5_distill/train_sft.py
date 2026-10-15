@@ -21,9 +21,6 @@ import math
 import os
 import sys
 
-import torch
-import torch.nn.functional as F
-
 
 def build_args(argv=None):
     ap = argparse.ArgumentParser()
@@ -79,14 +76,12 @@ def kd_mask(labels, input_ids, student_tok):
 
 def train(args):
     from sft_data import SPECIAL_TOKENS, DistillSFTDataset, collate, list_shards
-    torch.manual_seed(args.seed)
-
     shards, keep = list_shards(args.data, split="train")
     if not shards:
         sys.exit(f"no .jsonl shards under {args.data}")
     print(f"training on {len(shards)} shards from {args.data}")
 
-    if args.mock:  # exercise data pipeline only
+    if args.mock:  # exercise data pipeline only — no torch required
         ds = DistillSFTDataset(shards, tokenizer=None, mock_tokenize=True, keep_ids=keep)
         n_train = sum(1 for ex in ds.examples if any(l != -100 for l in ex["labels"]))
         n_up = sum(1 for ex in ds.examples if ex["loss_weight"] > 1.0)
@@ -96,6 +91,10 @@ def train(args):
         n_sup = sum(1 for l in sample["labels"] if l != -100)
         print(f"[mock] example 0: {len(sample['input_ids'])} tokens, {n_sup} supervised")
         return
+
+    import torch
+    import torch.nn.functional as F
+    torch.manual_seed(args.seed)
 
     student, teacher, s_tok, t_tok = load_models(args)
     ds = DistillSFTDataset(shards, tokenizer=s_tok, max_len=args.max_len, keep_ids=keep)

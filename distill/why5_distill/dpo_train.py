@@ -15,8 +15,6 @@ import argparse
 import json
 import os
 
-import torch
-
 
 def build_args(argv=None):
     ap = argparse.ArgumentParser()
@@ -89,6 +87,7 @@ def load_pairs(path, tokenizer, mock=False):
 
 def dpo_loss(policy_chosen, policy_rejected, ref_chosen, ref_rejected, beta):
     """Standard DPO objective on sequence logprobs."""
+    import torch  # deferred: mock path never trains
     pc = policy_chosen - ref_chosen
     pr = policy_rejected - ref_rejected
     logits = beta * (pc - pr)

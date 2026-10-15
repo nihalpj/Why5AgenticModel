@@ -26,9 +26,42 @@ RC=0
 
 banner() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 
+# ---- resolve python: venv from setup_5090_novita.sh, then system python ----
+find_python() {
+  for p in "${WHY5_VENV:-}/bin/python" \
+           "${WORK_DIR:-${HOME:-/root}/why5}/venv/bin/python" \
+           "${HOME:-/root}/why5/venv/bin/python" \
+           /usr/local/bin/python3 /usr/bin/python3; do
+    [ -n "$p" ] && [ -x "$p" ] && { echo "$p"; return 0; }
+  done
+  command -v python3 >/dev/null 2>&1 && { command -v python3; return 0; }
+  command -v python >/dev/null 2>&1 && { command -v python; return 0; }
+  return 1
+}
+if ! PYBIN=$(find_python); then
+  cat >&2 <<EOF
+
+ERROR: no python (>= 3.10) found on this machine.
+
+Fix: run the environment setup first, then re-run this script (it will
+find the venv automatically):
+    bash ../setup/setup_5090_novita.sh          # installs miniforge + venv
+
+Or point this script at an existing venv:
+    WHY5_VENV=/path/to/venv ./run_benchmark.sh
+EOF
+  exit 1
+fi
+echo "using python: $PYBIN"
+case "$PYBIN" in
+  */venv/bin/python) : ;;
+  *) echo "note: using SYSTEM python (not the setup venv) — if imports fail," \
+     "run: bash ../setup/setup_5090_novita.sh" ;;
+esac
+
 # ---- phase 1: harness self-test — perfect mock student must pass everything
 banner "phase 1: self-test (perfect mock student)"
-python3 why5_bench.py --mock --n "$N" --curve-n 0 \
+"$PYBIN" why5_bench.py --mock --n "$N" --curve-n 0 \
   --out benchmark_selftest.json
 if [ $? -eq 0 ]; then
   echo "phase 1 OK: perfect student scored above all gates"
@@ -39,7 +72,7 @@ fi
 
 # ---- phase 2: detection test — flawed mock student must FAIL (and be caught)
 banner "phase 2: detection test (flawed mock student)"
-python3 why5_bench.py --mock --inject-flaws --n "$N" --curve-n 0 \
+"$PYBIN" why5_bench.py --mock --inject-flaws --n "$N" --curve-n 0 \
   --out benchmark_flawed.json
 if [ $? -ne 0 ]; then
   echo "phase 2 OK: flawed student correctly detected below gates"
@@ -53,10 +86,10 @@ if [ "$MOCK" != "1" ]; then
   banner "phase 3: live benchmark ($BENCH_URL)"
   if ! curl -sf -o /dev/null "$BENCH_URL/models"; then
     echo "endpoint $BENCH_URL not reachable — start it with:" >&2
-    echo "  vllm serve $BENCH_MODEL --port 8001" >&2
+    echo "  $PYBIN -m vllm.entrypoints.openai.api_server --model $BENCH_MODEL --port 8001" >&2
     RC=1
   else
-    python3 why5_bench.py --url "$BENCH_URL" --model "$BENCH_MODEL" \
+    "$PYBIN" why5_bench.py --url "$BENCH_URL" --model "$BENCH_MODEL" \
       --n "$N" --curve-n "$CURVE_N" --out benchmark_report.json
     [ $? -eq 0 ] || RC=1
   fi
