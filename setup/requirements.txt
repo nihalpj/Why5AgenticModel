@@ -1,0 +1,30 @@
+# Why5 project — pip reference requirements (documentation; the setup script
+# installs these with GPU-specific pins for the RTX 5090 / sm_120 target).
+#
+# Import map (grep-verified across the repo):
+#   synth_factory/why5_synth/*   stdlib only
+#   benchmark/why5_bench.py      stdlib only (urllib) — live AND mock
+#   distill/why5_distill/teacher.py      openai (real mode)
+#   distill/why5_distill/sft_data.py     torch
+#   distill/why5_distill/train_sft.py    torch, transformers
+#   distill/why5_distill/dpo_train.py    trl, datasets, transformers, torch
+#   distill/why5_distill/on_policy.py    openai (real mode)
+
+# --- pipeline (always required for real distillation runs) ------------------
+openai>=1.30
+huggingface_hub[cli,hf_transfer]>=0.26
+numpy
+
+# --- training stack ----------------------------------------------------------
+torch>=2.7            # on RTX 5090: pip install torch --index-url .../whl/cu128
+transformers>=4.51
+trl>=0.17
+datasets>=3.0
+accelerate
+sentencepiece
+tensorboard
+
+# --- optional ----------------------------------------------------------------
+deepspeed>=0.16       # ZeRO offload for 2B SFT on 32GB GPUs
+vllm>=0.9.2           # Blackwell (sm_120) wheels; 0.9.2+ required
+# flash-attn          # no sm_120 wheel — build from source with CUDA_ARCHES="12.0"

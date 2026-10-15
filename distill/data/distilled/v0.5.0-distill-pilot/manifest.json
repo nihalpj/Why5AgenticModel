@@ -4,22 +4,22 @@
       {
         "shard": "d1-shard-0000",
         "file": "d1_why_traces/d1-shard-0000.jsonl",
-        "records": 60,
-        "sha256": "766d208b77b6b555b497e1101f9348386b45cc9e047417713d762d64916ccf61"
+        "records": 40,
+        "sha256": "a107971a7ffb0ad8b4845d36aeeb855512fac889deec399cadbf3c00d665cd38"
       }
     ],
     "D5": [
       {
         "shard": "d5-shard-0000",
         "file": "d5_counterfactual/d5-shard-0000.jsonl",
-        "records": 10,
-        "sha256": "3a8d4f1446563a5cd56517f4cbbe2f8eacc77c61d671fb2c33f37656cfd6b531"
+        "records": 8,
+        "sha256": "50b7e8811969430d0e0121056aaa54ccc8412aae6f66c044c67931f5cf046f4b"
       }
     ]
   },
   "counts": {
-    "D1": 60,
-    "D5": 10
+    "D1": 40,
+    "D5": 8
   },
-  "total_records": 70
+  "total_records": 48
 }

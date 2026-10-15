@@ -13,6 +13,7 @@ mock responses use the pilot's template families.
 import json
 import random
 import re
+import sys
 
 SYSTEM_CONTRACT = (
     "You are a careful reasoning assistant that powers an agent. "
@@ -94,7 +95,14 @@ class QwenTeacher:
         self.mock = mock
         self.rng = random.Random(seed)
         if not mock:
-            from openai import OpenAI  # deferred: not needed in mock mode
+            try:
+                from openai import OpenAI  # deferred: not needed in mock mode
+            except ImportError as e:
+                raise ImportError(
+                    "the 'openai' package is required for real (non-mock) runs "
+                    f"with the teacher endpoint — install it with "
+                    f"'{sys.executable} -m pip install openai', or run with "
+                    "--mock to stay offline") from e
             self.client = OpenAI(base_url=base_url, api_key=api_key)
 
     # -- public API ----------------------------------------------------------

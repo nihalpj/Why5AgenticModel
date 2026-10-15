@@ -1,22 +1,22 @@
 {
   "records": {
-    "D1": 60,
-    "D5": 10
+    "D1": 40,
+    "D5": 8
   },
   "d1_depth_distribution": {
-    "3": 24,
-    "4": 24,
-    "5": 12
+    "3": 16,
+    "4": 16,
+    "5": 8
   },
   "teacher": {
     "format_acceptance": 1.0,
-    "sampled": 332,
-    "valid": 332,
+    "sampled": 212,
+    "valid": 212,
     "format_reject": 0,
-    "accepted": 83
+    "accepted": 53
   },
   "stats": {
-    "seeds": 72,
-    "rejected": 12
+    "seeds": 45,
+    "rejected": 5
   }
 }

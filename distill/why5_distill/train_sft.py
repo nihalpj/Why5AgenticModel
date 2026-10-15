@@ -34,6 +34,9 @@ def build_args(argv=None):
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--grad-accum", type=int, default=4)
+    ap.add_argument("--optim", choices=["adamw", "adamw8bit"], default="adamw",
+                    help="adamw8bit (bitsandbytes) keeps Adam states in VRAM — "
+                         "required for 2B SFT on 24GB (RTX 4090), optional on 32GB")
     ap.add_argument("--max-len", type=int, default=4096)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--mock", action="store_true",
@@ -106,7 +109,21 @@ def train(args):
     student.to(device)
     if teacher:
         teacher.to(device)
-    opt = torch.optim.AdamW(student.parameters(), lr=args.lr, weight_decay=0.01)
+    if args.optim == "adamw8bit":
+        try:
+            import bitsandbytes as bnb  # pip install bitsandbytes
+            opt = bnb.optim.AdamW8bit(student.parameters(), lr=args.lr,
+                                      weight_decay=0.01)
+            print(f"optimizer: AdamW8bit (bitsandbytes) — Adam states stay 8-bit "
+                  f"({args.batch_size=}, {args.grad_accum=})")
+        except ImportError:
+            print("warning: bitsandbytes not installed — falling back to AdamW "
+                  "(~12GB extra VRAM; may OOM on 24GB GPUs). "
+                  "pip install bitsandbytes")
+            opt = torch.optim.AdamW(student.parameters(), lr=args.lr,
+                                    weight_decay=0.01)
+    else:
+        opt = torch.optim.AdamW(student.parameters(), lr=args.lr, weight_decay=0.01)
     total_steps = math.ceil(len(dl) / args.grad_accum) * args.epochs
     sched = torch.optim.lr_scheduler.OneCycleLR(
         opt, max_lr=args.lr, total_steps=total_steps, pct_start=0.03)
