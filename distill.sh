@@ -232,7 +232,10 @@ if missing:
         print("  Proceeding because --mock mode does not require full training packages.")
     else:
         print(f"\nERROR: missing required packages: {missing}")
-        print("Run: bash setup.sh")
+        print("To fix, run:")
+        print("  bash setup.sh")
+        print(f"Or install directly into this environment:")
+        print(f"  {sys.executable} -m pip install -r requirements.txt")
         sys.exit(1)
 
 if not missing:

@@ -29,6 +29,7 @@
 set -euo pipefail
 
 # ──────────────────────────────────────────────────── configurable defaults ──
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen3.5-4B}"
 STUDENT_MODEL="${STUDENT_MODEL:-Qwen/Qwen3-1.7B}"
 VLLM_VERSION="${VLLM_VERSION:-0.9.2}"
@@ -176,7 +177,7 @@ if ! PYBIN=$(find_python); then
   MINIFORGE="$WORK_DIR/miniforge.sh"
   download_url "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" "$MINIFORGE"
   bash "$MINIFORGE" -b -p "$WORK_DIR/miniforge3"
-  "$WORK_DIR/miniforge3/bin/conda" create -y -p "$VENV_DIR" python=3.12
+  "$WORK_DIR/miniforge3/bin/conda" create -y -p "$VENV_DIR" python=3.12 pip wheel setuptools
   PYBIN="$VENV_DIR/bin/python"
 fi
 
@@ -274,9 +275,9 @@ if [ "$GPU_FAMILY" != "CPU-only" ] && { [ "$WITH_FLASHATTN" -eq 1 ] || [ "$WITH_
   elif [ -x /usr/local/cuda/bin/nvcc ]; then NVCC_BIN=/usr/local/cuda/bin/nvcc; fi
 
   nvcc_ok=0
-  if [ -n "$NVCC_BIN" ]; then
+  if [ -n "$NVCC_BIN" ] && [ -x "$NVCC_BIN" ]; then
     nvcc_ver="$("$NVCC_BIN" --version | grep -o 'release [0-9.]*' | cut -d' ' -f2)"
-    [ "$(python3 - "$nvcc_ver" <<'EOF'
+    [ "$("$VENV_PY" - "$nvcc_ver" <<'EOF'
 import sys; print(1 if tuple(map(int, sys.argv[1].split('.')[:2])) >= (12, 8) else 0)
 EOF
 )" = "1" ] && nvcc_ok=1
@@ -297,13 +298,20 @@ EOF
       [ -x /usr/local/cuda-"$CUDA_VERSION"/bin/nvcc ] && NVCC_BIN=/usr/local/cuda-"$CUDA_VERSION"/bin/nvcc
     fi
     if [ -z "$NVCC_BIN" ] || [ ! -x "$NVCC_BIN" ]; then
-      $PIP install -q nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-cccl-cu12
-      NVCC_BIN="$("$VENV_PY" -c 'import nvidia.cuda_nvcc, pathlib; print(pathlib.Path(nvidia.cuda_nvcc.__file__).parent/"bin"/"nvcc")')"
-      LOG "using pip-provided nvcc at $NVCC_BIN"
+      $PIP install -q nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-cccl-cu12 2>/dev/null || true
+      NVCC_BIN="$("$VENV_PY" -c 'import nvidia.cuda_nvcc, pathlib; print(pathlib.Path(nvidia.cuda_nvcc.__file__).parent/"bin"/"nvcc")' 2>/dev/null || echo '')"
+      [ -n "$NVCC_BIN" ] && LOG "using pip-provided nvcc at $NVCC_BIN"
     fi
   fi
-  [ -x "$NVCC_BIN" ] || DIE "nvcc not found at '$NVCC_BIN'"
-  LOG "nvcc: $("$NVCC_BIN" --version | tail -1)"
+  if [ -n "$NVCC_BIN" ] && [ -x "$NVCC_BIN" ]; then
+    LOG "nvcc: $("$NVCC_BIN" --version | tail -1)"
+  else
+    if [ "$FLASHATTN_PREBUILT" -eq 1 ]; then
+      LOG "nvcc not installed (not required on sm_$GPU_ARCH — official prebuilt wheels available)"
+    else
+      WARN "nvcc not found — source build for sm_$GPU_ARCH may fail (will fallback to SDPA attention)"
+    fi
+  fi
 fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -311,6 +319,11 @@ fi
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # ─────────────────────────────────────── 1. Core / shared dependencies ──
+if [ -f "$REPO_ROOT/requirements.txt" ]; then
+  LOG "installing dependencies from requirements.txt"
+  $PIP install -r "$REPO_ROOT/requirements.txt"
+fi
+
 LOG "installing core dependencies (openai, httpx, tenacity, tiktoken, tqdm, yaml, numpy, huggingface_hub)"
 $PIP install -q \
   "openai>=1.30" \
