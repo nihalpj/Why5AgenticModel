@@ -9,6 +9,7 @@
 #
 # Usage:
 #   bash setup.sh                          # full setup (auto-detects GPU)
+#   bash setup.sh --models-only            # download teacher and student models only
 #   bash setup.sh --cpu                    # CPU-only (no CUDA deps)
 #   bash setup.sh --skip-models            # skip model downloads
 #   bash setup.sh --skip-flashattn         # skip flash-attn (use SDPA)
@@ -191,6 +192,81 @@ source "$VENV_DIR/bin/activate" 2>/dev/null || true
 "$VENV_PY" -m pip install -U pip wheel setuptools
 LOG "Python: $("$VENV_PY" --version) at $VENV_PY"
 
+# ────────────────────────────────────── model download helper ──
+download_models_step() {
+  LOG "checking model downloads (teacher: $TEACHER_MODEL, student: $STUDENT_MODEL)"
+  export HF_HOME
+  export HF_HUB_ENABLE_HF_TRANSFER=1
+
+  if ! "$VENV_PY" -c "import huggingface_hub" >/dev/null 2>&1; then
+    LOG "installing huggingface_hub[cli,hf_transfer]"
+    $PIP install -q "huggingface_hub[cli,hf_transfer]"
+  fi
+
+  HFCLI="$( [ -x "$VENV_DIR/bin/huggingface-cli" ] && echo "$VENV_DIR/bin/huggingface-cli" || echo huggingface-cli )"
+  [ -n "${HF_TOKEN:-}" ] && "$HFCLI" login --token "$HF_TOKEN" --add-to-git-credential 2>/dev/null \
+    || LOG "HF_TOKEN not set — public models only"
+
+  download_single_model() {
+    local repo_id="$1"
+    LOG "downloading $repo_id → HF_HOME=$HF_HOME"
+
+    local cached
+    cached="$("$VENV_PY" - "$repo_id" <<'PY'
+import sys
+try:
+    from huggingface_hub import snapshot_download
+    path = snapshot_download(sys.argv[1], local_files_only=True)
+    print(path)
+except Exception:
+    print("")
+PY
+)"
+    if [ -n "$cached" ]; then
+      LOG "✓ $repo_id is already cached at $cached"
+      return 0
+    fi
+
+    local ok=0
+    if [ -x "$HFCLI" ] || command -v "$HFCLI" >/dev/null 2>&1; then
+      if "$HFCLI" download "$repo_id" --exclude "*.pth" "original/*" "*.gguf" "own_weights/*" "*.bin"; then
+        ok=1
+      else
+        WARN "huggingface-cli download failed — retrying with python snapshot_download..."
+      fi
+    fi
+
+    if [ "$ok" -eq 0 ]; then
+      "$VENV_PY" - "$repo_id" "$HF_HOME" <<'PYDL'
+import sys
+from huggingface_hub import snapshot_download
+repo_id, cache_dir = sys.argv[1], sys.argv[2]
+print(f"Downloading {repo_id}...")
+path = snapshot_download(
+    repo_id,
+    cache_dir=cache_dir,
+    ignore_patterns=["*.pth", "*.gguf", "*.bin", "original/*", "own_weights/*"],
+)
+print(f"Downloaded: {path}")
+PYDL
+    fi
+    LOG "✓ $repo_id ready"
+  }
+
+  download_single_model "$TEACHER_MODEL"
+  if [ -n "$STUDENT_MODEL" ] && [ "$STUDENT_MODEL" != "$TEACHER_MODEL" ]; then
+    download_single_model "$STUDENT_MODEL"
+  fi
+}
+
+# ────────────────────────────────────── models-only fast exit ──
+if [ "$MODELS_ONLY" -eq 1 ]; then
+  LOG "mode: --models-only"
+  download_models_step
+  LOG "models download complete"
+  exit 0
+fi
+
 # ──────────────────────────────────────────────── CUDA toolkit (nvcc) ──
 NVCC_BIN=""
 if [ "$GPU_FAMILY" != "CPU-only" ] && { [ "$WITH_FLASHATTN" -eq 1 ] || [ "$WITH_LLAMACPP" -eq 1 ]; }; then
@@ -370,26 +446,7 @@ fi
 # MODEL DOWNLOADS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 if [ "$SKIP_MODELS" -eq 0 ]; then
-  export HF_HOME
-  export HF_HUB_ENABLE_HF_TRANSFER=1
-
-  HFCLI="$( [ -x "$VENV_DIR/bin/huggingface-cli" ] && echo "$VENV_DIR/bin/huggingface-cli" || echo huggingface-cli )"
-  [ -n "${HF_TOKEN:-}" ] && "$HFCLI" login --token "$HF_TOKEN" --add-to-git-credential 2>/dev/null \
-    || LOG "HF_TOKEN not set — public models only"
-
-  download_model() {
-    LOG "downloading $1 → HF_HOME=$HF_HOME"
-    if "$HFCLI" download "$1" --exclude "*.pth" "original/*" "*.gguf" "own_weights/*" "*.bin" 2>&1 | tail -2; then
-      LOG "✓ $1"
-    else
-      DIE "failed to download '$1' — check model ID or HF_TOKEN"
-    fi
-  }
-
-  download_model "$TEACHER_MODEL"
-  if [ -n "$STUDENT_MODEL" ] && [ "$STUDENT_MODEL" != "$TEACHER_MODEL" ]; then
-    download_model "$STUDENT_MODEL"
-  fi
+  download_models_step
 else
   LOG "skipping model downloads (--skip-models)"
 fi
