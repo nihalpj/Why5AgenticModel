@@ -21,6 +21,8 @@ MOCK="${MOCK:-0}"
 N_D1="${N_D1:-200}"
 N_D5="${N_D5:-50}"
 N_ROLLOUTS="${N_ROLLOUTS:-60}"
+TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen3.5-4B}"
+TEACHER_URL="${TEACHER_URL:-http://localhost:8000}"
 STUDENT_CKPT="ckpt/why5-sft"
 
 MOCK_FLAG=""
@@ -110,6 +112,28 @@ if [ "$MOCK" != "1" ]; then
     }
     echo "openai installed OK"
   fi
+fi
+
+# ---- teacher preflight: real mode needs the vLLM teacher on :8000 -----------
+if [ "$MOCK" != "1" ]; then
+  if ! curl -sf -o /dev/null --max-time 5 "$TEACHER_URL/v1/models"; then
+    cat >&2 <<EOF
+
+ERROR: teacher not reachable at $TEACHER_URL — start it first, then re-run.
+
+  # 5090 (32GB Blackwell):
+  VLLM_ATTENTION_BACKEND=FLASHINFER "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" \\
+      --port 8000 --max-model-len 8192 --gpu-memory-utilization $VLLM_MEM_UTIL
+  # 4090 (24GB Ada):
+  "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" \\
+      --port 8000 --max-model-len 8192 --gpu-memory-utilization 0.85
+
+Wait for "Application startup complete", then re-run this script.
+(Offline? MOCK=1 ./run_distillation.sh needs no server.)
+EOF
+    exit 2
+  fi
+  echo "teacher OK at $TEACHER_URL"
 fi
 
 echo "== Stage 0/1: corpus generation with Qwen 3.5 teacher =="

@@ -76,7 +76,7 @@ def parse_teacher_whys(text, depth):
 # ---------------------------------------------------------------------------
 
 class TeacherError(Exception):
-    pass
+    """Teacher endpoint unreachable or failed — message carries the fix."""
 
 
 class QwenTeacher:
@@ -126,10 +126,19 @@ class QwenTeacher:
     def _one_candidate(self, messages, depth, seed):
         if self.mock:
             return self._mock_completion(messages, depth, seed)
-        resp = self.client.chat.completions.create(
-            model=self.model, messages=messages,
-            temperature=self.temperature, top_p=self.top_p,
-            max_tokens=self.max_tokens)
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model, messages=messages,
+                temperature=self.temperature, top_p=self.top_p,
+                max_tokens=self.max_tokens)
+        except Exception as e:  # connect refused / timeouts / API errors
+            raise TeacherError(
+                f"teacher API call failed ({type(e).__name__}): {e}\n"
+                f"  Is the teacher served? Start it with:\n"
+                f"    vllm serve {self.model} --port 8000 --max-model-len 8192\n"
+                f"  (wait for 'Application startup complete', then re-run)\n"
+                f"  Different endpoint? Pass --base-url / --model."
+            ) from e
         return parse_teacher_whys(resp.choices[0].message.content or "", depth)
 
     def _mock_completion(self, messages, depth, seed):

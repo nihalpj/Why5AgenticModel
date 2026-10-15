@@ -20,11 +20,11 @@ from why5_synth import ToolZoo, SeedGenerator, Validator, DatasetWriter
 from why5_synth.generator import TraceGenerator
 
 try:
-    from why5_distill.teacher import QwenTeacher
+    from why5_distill.teacher import QwenTeacher, TeacherError
     from why5_distill.logs import log, start_file_log
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from teacher import QwenTeacher
+    from teacher import QwenTeacher, TeacherError
     from logs import log, start_file_log
 
 
@@ -99,6 +99,9 @@ def main():
         stats["seeds"] += 1
         try:
             rec = gen.generate(seed, dataset_class="D1")
+        except TeacherError as e:
+            log("corpus", str(e), level="ERROR")
+            sys.exit(2)  # endpoint dead: no point retrying the whole stream
         except RuntimeError as e:
             stats["teacher_exhausted"] += 1
             continue
@@ -129,6 +132,9 @@ def main():
         for forced in counterfactual_depths(seed["gold_depth"]):
             try:
                 rec = gen.generate(seed, dataset_class="D5", forced_depth=forced)
+            except TeacherError as e:
+                log("corpus", str(e), level="ERROR")
+                sys.exit(2)
             except RuntimeError:
                 break
             if rec is None:
