@@ -145,8 +145,13 @@ LOG "  serving:  mem-util=$VLLM_MEM_UTIL backend=${VLLM_BACKEND:-default}"
 # ──────────────────────────────────────────────────────── Python resolver ──
 find_python() {
   for p in "${WHY5_VENV:-}" \
+           "${VIRTUAL_ENV:-}/bin/python" \
+           "${CONDA_PREFIX:-}/bin/python" \
            "$VENV_DIR/bin/python" \
-           "${WORK_DIR:-${HOME:-/root}/why5}/venv/bin/python"; do
+           "$(pwd)/venv/bin/python" \
+           "$(pwd)/.venv/bin/python" \
+           "${WORK_DIR:-${HOME:-/root}/why5}/venv/bin/python" \
+           "${HOME:-/root}/why5/venv/bin/python"; do
     [ -n "$p" ] && [ -x "$p" ] && { echo "$p"; return 0; }
   done
   if command -v python3 >/dev/null 2>&1; then command -v python3; return 0; fi
@@ -155,7 +160,7 @@ find_python() {
 }
 
 if ! PYBIN=$(find_python); then
-  DIE "no Python found. Run setup.sh first:  bash ../setup.sh"
+  DIE "no Python found. Run setup.sh first:  bash setup.sh"
 fi
 LOG "using Python: $PYBIN"
 
@@ -176,8 +181,9 @@ if [ "$START_STAGE" -le 0 ]; then
 
   # Check all required Python packages
   LOG "checking dependencies..."
-  "$PYBIN" - <<'DEPCHECK'
+  "$PYBIN" - "$MOCK" <<'DEPCHECK'
 import importlib, sys
+is_mock = (sys.argv[1] == "1")
 
 required = {
     "openai":       "teacher/student API client",
@@ -221,11 +227,16 @@ for mod, desc in optional.items():
         print(f"  ○ {mod} not installed — {desc} (optional)")
 
 if missing:
-    print(f"\nERROR: missing required packages: {missing}")
-    print("Run: bash ../setup.sh")
-    sys.exit(1)
+    if is_mock:
+        print(f"\n[INFO] Missing packages: {missing}")
+        print("  Proceeding because --mock mode does not require full training packages.")
+    else:
+        print(f"\nERROR: missing required packages: {missing}")
+        print("Run: bash setup.sh")
+        sys.exit(1)
 
-print("\n  All required dependencies OK")
+if not missing:
+    print("\n  All required dependencies OK")
 DEPCHECK
 fi
 

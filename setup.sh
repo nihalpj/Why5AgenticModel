@@ -44,6 +44,7 @@ PY_MIN_MINOR=10
 # ────────────────────────────────────────────────────────────── CLI flags ──
 CPU_ONLY=0
 SKIP_MODELS=0
+MODELS_ONLY=0
 WITH_FLASHATTN=1
 WITH_DOCKER=1
 WITH_LLAMACPP=1
@@ -54,6 +55,7 @@ WITH_SMOKE=1
 
 for arg in "$@"; do
   case "$arg" in
+    --models-only)      MODELS_ONLY=1 ;;
     --cpu)              CPU_ONLY=1 ;;
     --skip-models)      SKIP_MODELS=1 ;;
     --skip-flashattn)   WITH_FLASHATTN=0 ;;
@@ -71,16 +73,61 @@ LOG()  { printf '\033[1;36m[setup %s]\033[0m %s\n' "$(date +%H:%M:%S)" "$*"; }
 WARN() { printf '\033[1;33m[setup WARN]\033[0m %s\n' "$*"; }
 DIE()  { printf '\033[1;31m[setup ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 
+CAN_ROOT=0
 SUDO=""
-if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null; then SUDO="sudo"; fi
+if [ "$(id -u)" -eq 0 ]; then
+  CAN_ROOT=1
+  SUDO=""
+elif command -v sudo >/dev/null 2>&1; then
+  CAN_ROOT=1
+  SUDO="sudo"
+fi
+
+# ─────────────────────────────────────────────── system prerequisites ──
+install_sys_deps() {
+  local missing=()
+  for cmd in curl wget git gcc make cmake ninja; do
+    command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+  done
+
+  if [ ${#missing[@]} -eq 0 ]; then return 0; fi
+
+  LOG "missing system utilities: ${missing[*]}"
+  if [ "$CAN_ROOT" -eq 1 ] && command -v apt-get >/dev/null 2>&1; then
+    LOG "installing missing system packages via apt-get..."
+    export DEBIAN_FRONTEND=noninteractive
+    $SUDO apt-get update -y -q
+    $SUDO apt-get install -y --no-install-recommends \
+      curl wget git build-essential cmake ninja-build \
+      ca-certificates gnupg pkg-config \
+      || DIE "apt-get install failed — please install manually: ${missing[*]}"
+  else
+    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+      DIE "neither curl nor wget is installed and apt-get is unavailable. Please install curl or wget."
+    fi
+  fi
+}
+install_sys_deps
+
+download_url() {
+  local url="$1"
+  local dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$dest"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$dest" "$url"
+  else
+    DIE "neither curl nor wget available to download $url"
+  fi
+}
 
 # ────────────────────────────────────────────────────────── GPU detection ──
 detect_gpu() {
   if [ "$CPU_ONLY" = "1" ] || ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "none"; return 0
   fi
-  nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader | tee /dev/stderr
-  nvidia-smi --query-gpu=name --format=csv,noheader | head -1
+  nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader >&2 2>/dev/null || true
+  nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | tr -d '\r'
 }
 
 GPU_NAME="$(detect_gpu)"
@@ -126,7 +173,7 @@ find_python() {
 if ! PYBIN=$(find_python); then
   LOG "no Python ≥ 3.10 found — installing Miniforge"
   MINIFORGE="$WORK_DIR/miniforge.sh"
-  curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" -o "$MINIFORGE"
+  download_url "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh" "$MINIFORGE"
   bash "$MINIFORGE" -b -p "$WORK_DIR/miniforge3"
   "$WORK_DIR/miniforge3/bin/conda" create -y -p "$VENV_DIR" python=3.12
   PYBIN="$VENV_DIR/bin/python"
@@ -136,12 +183,13 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
   "$PYBIN" -m venv "$VENV_DIR"
 fi
 
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
-python -m pip install -U pip wheel setuptools
-LOG "Python: $(python --version) at $(which python)"
-
+VENV_PY="$VENV_DIR/bin/python"
 PIP="$VENV_DIR/bin/pip"
+
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate" 2>/dev/null || true
+"$VENV_PY" -m pip install -U pip wheel setuptools
+LOG "Python: $("$VENV_PY" --version) at $VENV_PY"
 
 # ──────────────────────────────────────────────── CUDA toolkit (nvcc) ──
 NVCC_BIN=""
@@ -160,7 +208,8 @@ EOF
 
   if [ "$nvcc_ok" != "1" ]; then
     LOG "installing CUDA ${CUDA_VERSION} toolkit (nvcc)"
-    if [ -n "$SUDO" ]; then
+    if [ "$CAN_ROOT" -eq 1 ] && command -v apt-get >/dev/null 2>&1; then
+      export DEBIAN_FRONTEND=noninteractive
       $SUDO apt-get update -y
       $SUDO apt-get install -y ca-certificates gnupg build-essential cmake ninja-build git curl
       $SUDO install -m 0755 -d /etc/apt/keyrings
@@ -168,11 +217,12 @@ EOF
         curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/$( . /etc/os-release; echo "${ID}${VERSION_ID/./}" )/$(uname -m)/31986faa-keyring.gpg" | $SUDO tee /etc/apt/keyrings/nvidia.gpg >/dev/null
       echo "deb [signed-by=/etc/apt/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/$( . /etc/os-release; echo "${ID}${VERSION_ID/./}" )/$(uname -m)/ /" | $SUDO tee /etc/apt/sources.list.d/cuda.list >/dev/null
       $SUDO apt-get update -y
-      $SUDO apt-get install -y "cuda-toolkit-${CUDA_VERSION/./-}"
-      NVCC_BIN=/usr/local/cuda-"$CUDA_VERSION"/bin/nvcc
-    else
+      $SUDO apt-get install -y "cuda-toolkit-${CUDA_VERSION/./-}" || true
+      [ -x /usr/local/cuda-"$CUDA_VERSION"/bin/nvcc ] && NVCC_BIN=/usr/local/cuda-"$CUDA_VERSION"/bin/nvcc
+    fi
+    if [ -z "$NVCC_BIN" ] || [ ! -x "$NVCC_BIN" ]; then
       $PIP install -q nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12 nvidia-cuda-cccl-cu12
-      NVCC_BIN="$(python -c 'import nvidia.cuda_nvcc, pathlib; print(pathlib.Path(nvidia.cuda_nvcc.__file__).parent/"bin"/"nvcc")')"
+      NVCC_BIN="$("$VENV_PY" -c 'import nvidia.cuda_nvcc, pathlib; print(pathlib.Path(nvidia.cuda_nvcc.__file__).parent/"bin"/"nvcc")')"
       LOG "using pip-provided nvcc at $NVCC_BIN"
     fi
   fi
@@ -185,7 +235,7 @@ fi
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # ─────────────────────────────────────── 1. Core / shared dependencies ──
-LOG "installing core dependencies"
+LOG "installing core dependencies (openai, httpx, tenacity, tiktoken, tqdm, yaml, numpy, huggingface_hub)"
 $PIP install -q \
   "openai>=1.30" \
   "httpx>=0.24" \
@@ -198,15 +248,15 @@ $PIP install -q \
 
 # ─────────────────────────────────── 2. PyTorch (CUDA or CPU) ──
 if [ "$GPU_FAMILY" != "CPU-only" ]; then
-  if python -c "import torch" 2>/dev/null && \
-     python -c "import torch; assert torch.cuda.is_available() and tuple(map(int, torch.version.cuda.split('.')[:2])) >= (12, 8)" 2>/dev/null; then
-    LOG "torch $(python -c 'import torch; print(torch.__version__)') already cu128 — skipping"
+  if "$VENV_PY" -c "import torch" 2>/dev/null && \
+     "$VENV_PY" -c "import torch; assert torch.cuda.is_available() and tuple(map(int, torch.version.cuda.split('.')[:2])) >= (12, 8)" 2>/dev/null; then
+    LOG "torch $("$VENV_PY" -c 'import torch; print(torch.__version__)') already cu128 — skipping"
   else
     LOG "installing PyTorch ${TORCH_VERSION}+cu128"
     $PIP install "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cu128
   fi
 else
-  if ! python -c "import torch" 2>/dev/null; then
+  if ! "$VENV_PY" -c "import torch" 2>/dev/null; then
     LOG "installing PyTorch (CPU)"
     $PIP install "torch==${TORCH_VERSION}" --index-url https://download.pytorch.org/whl/cpu
   fi
@@ -255,8 +305,8 @@ fi
 
 # ─────────────────────────────── 5. vLLM inference engine ──
 if [ "$GPU_FAMILY" != "CPU-only" ]; then
-  if python -c "import vllm" 2>/dev/null; then
-    LOG "vLLM $(python -c 'import vllm; print(vllm.__version__)') present — skipping"
+  if "$VENV_PY" -c "import vllm" 2>/dev/null; then
+    LOG "vLLM $("$VENV_PY" -c 'import vllm; print(vllm.__version__)') present — skipping"
   else
     LOG "installing vLLM ${VLLM_VERSION}"
     $PIP install "vllm==${VLLM_VERSION}" \
@@ -266,7 +316,7 @@ fi
 
 # ──────────────────────────────── 6. flash-attn ──
 if [ "$WITH_FLASHATTN" -eq 1 ] && [ "$GPU_FAMILY" != "CPU-only" ]; then
-  if python -c "import flash_attn" 2>/dev/null; then
+  if "$VENV_PY" -c "import flash_attn" 2>/dev/null; then
     LOG "flash-attn present — skipping"
   elif [ "$FLASHATTN_PREBUILT" -eq 1 ]; then
     LOG "installing prebuilt flash-attn (sm_$GPU_ARCH)"
@@ -295,7 +345,7 @@ if [ "$WITH_LLAMACPP" -eq 1 ] && [ "$GPU_FAMILY" != "CPU-only" ]; then
   else
     LOG "building llama.cpp with CUDA for sm_$GPU_ARCH"
     $PIP install -q cmake
-    [ -n "$SUDO" ] && $SUDO apt-get install -y git build-essential cmake || true
+    [ "$CAN_ROOT" -eq 1 ] && command -v apt-get >/dev/null 2>&1 && $SUDO apt-get install -y git build-essential cmake || true
     git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$WORK_DIR/llama.cpp"
     export CUDA_HOME="$(dirname "$(dirname "$NVCC_BIN")")"
     export CUDACXX="$NVCC_BIN"
@@ -348,33 +398,36 @@ fi
 # VERIFICATION
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LOG "verifying installed packages"
-"$VENV_DIR/bin/python" - <<'PYCHECK'
+"$VENV_DIR/bin/python" - "$WITH_TRAIN" <<'PYCHECK'
 import importlib, sys
+with_train = bool(int(sys.argv[1]))
 
 # (module, pip_name, component, required)
 deps = [
-    # ── core / shared ──
-    ("openai",          "openai",          "core",         True),
-    ("httpx",           "httpx",           "core",         True),
-    ("tenacity",        "tenacity",        "core",         True),
-    ("tiktoken",        "tiktoken",        "core",         True),
-    ("tqdm",            "tqdm",            "core",         True),
-    ("yaml",            "pyyaml",          "core",         True),
-    ("numpy",           "numpy",           "core",         True),
-    ("huggingface_hub", "huggingface_hub", "core",         True),
-    # ── synth_factory ──
+    # ── 12 Required Distillation Dependencies (checked by distill.sh) ──
+    ("openai",          "openai",          "distill",      True),
+    ("torch",           "torch",           "distill",      True),
+    ("transformers",    "transformers",    "distill",      with_train),
+    ("trl",             "trl",             "distill",      with_train),
+    ("peft",            "peft",            "distill",      with_train),
+    ("datasets",        "datasets",        "distill",      with_train),
+    ("accelerate",      "accelerate",      "distill",      with_train),
+    ("tiktoken",        "tiktoken",        "distill",      True),
+    ("tqdm",            "tqdm",            "distill",      True),
+    ("yaml",            "pyyaml",          "distill",      True),
+    ("numpy",           "numpy",           "distill",      True),
+    ("huggingface_hub", "huggingface_hub", "distill",      True),
+    # ── Distillation Optional Extras ──
+    ("wandb",           "wandb",           "optional",     False),
+    ("bitsandbytes",    "bitsandbytes",    "optional",     False),
+    ("deepspeed",       "deepspeed",       "optional",     False),
+    ("flash_attn",      "flash_attn",      "optional",     False),
+    ("vllm",            "vllm",            "optional",     False),
+    # ── Synth Factory & Benchmark ──
+    ("httpx",           "httpx",           "synth",        False),
+    ("tenacity",        "tenacity",        "synth",        False),
     ("jsonschema",      "jsonschema",      "synth",        False),
     ("docker",          "docker",          "synth",        False),
-    # ── training ──
-    ("torch",           "torch",           "training",     True),
-    ("transformers",    "transformers",    "training",     False),
-    ("trl",             "trl",             "training",     False),
-    ("peft",            "peft",            "training",     False),
-    ("datasets",        "datasets",        "training",     False),
-    ("accelerate",      "accelerate",      "training",     False),
-    ("safetensors",     "safetensors",     "training",     False),
-    ("wandb",           "wandb",           "training",     False),
-    # ── benchmark ──
     ("pandas",          "pandas",          "benchmark",    False),
     ("scipy",           "scipy",           "benchmark",    False),
 ]
