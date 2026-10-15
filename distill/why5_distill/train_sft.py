@@ -37,6 +37,9 @@ def build_args(argv=None):
     ap.add_argument("--optim", choices=["adamw", "adamw8bit"], default="adamw",
                     help="adamw8bit (bitsandbytes) keeps Adam states in VRAM — "
                          "required for 2B SFT on 24GB (RTX 4090), optional on 32GB")
+    ap.add_argument("--attn", choices=["sdpa", "flash_attention_2"], default="sdpa",
+                    help="flash_attention_2 needs the flash-attn package; "
+                         "auto-falls back to SDPA when unavailable")
     ap.add_argument("--max-len", type=int, default=4096)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--mock", action="store_true",
@@ -50,8 +53,17 @@ def load_models(args):
     teacher_tok = AutoTokenizer.from_pretrained(args.teacher)
     for tok in (student_tok,):
         tok.add_special_tokens({"additional_special_tokens": SPECIAL_TOKENS})
+    attn = args.attn
+    if attn == "flash_attention_2":
+        try:
+            import flash_attn  # noqa: F401  (presence = usable backend)
+        except ImportError:
+            print("warning: flash-attn not installed — falling back to SDPA "
+                  "(pip install flash-attn to enable FA2)")
+            attn = "sdpa"
+    print(f"attention backend: {attn}")
     student = AutoModelForCausalLM.from_pretrained(
-        args.student, torch_dtype=torch.bfloat16, attn_implementation="sdpa")
+        args.student, torch_dtype=torch.bfloat16, attn_implementation=attn)
     student.resize_token_embeddings(len(student_tok))
     teacher = None
     if args.kd > 0:

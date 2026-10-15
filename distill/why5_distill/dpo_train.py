@@ -25,6 +25,9 @@ def build_args(argv=None):
     ap.add_argument("--lr", type=float, default=5e-7)
     ap.add_argument("--epochs", type=int, default=1)
     ap.add_argument("--batch-size", type=int, default=4)
+    ap.add_argument("--attn", choices=["sdpa", "flash_attention_2"], default="sdpa",
+                    help="flash_attention_2 needs the flash-attn package; "
+                         "auto-falls back to SDPA when unavailable")
     ap.add_argument("--mock", action="store_true")
     return ap.parse_args(argv)
 
@@ -108,9 +111,19 @@ def main(argv=None):
     from sft_data import SPECIAL_TOKENS
     tok = AutoTokenizer.from_pretrained(args.model)
     tok.add_special_tokens({"additional_special_tokens": SPECIAL_TOKENS})
-    policy = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+    attn = args.attn
+    if attn == "flash_attention_2":
+        try:
+            import flash_attn  # noqa: F401
+        except ImportError:
+            print("warning: flash-attn not installed — falling back to SDPA")
+            attn = "sdpa"
+    print(f"attention backend: {attn}")
+    policy = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16,
+                                                  attn_implementation=attn)
     policy.resize_token_embeddings(len(tok))
-    ref = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+    ref = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16,
+                                               attn_implementation=attn)
     ref.eval()
     for p in ref.parameters():
         p.requires_grad_(False)

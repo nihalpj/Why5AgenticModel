@@ -24,6 +24,7 @@ N_ROLLOUTS="${N_ROLLOUTS:-60}"
 TEACHER_MODEL="${TEACHER_MODEL:-Qwen/Qwen3.5-4B}"
 TEACHER_URL="${TEACHER_URL:-http://localhost:8000}"
 VENV_DIR="${VENV_DIR:-${WORK_DIR:-${HOME:-/root}/why5}/venv}"   # setup's venv
+VLLM_VERSION="${VLLM_VERSION:-0.9.2}"
 STUDENT_CKPT="ckpt/why5-sft"
 
 # HF cache: same location the setup script uses (set BEFORE any hf/vllm call
@@ -112,6 +113,15 @@ case "$PYBIN" in
      "run: bash ../setup/setup_5090_novita.sh" ;;
 esac
 
+# ---- attention backend for training: FA2 when flash-attn is usable ----------
+ATTN_IMPL="sdpa"
+if "$PYBIN" -c "import flash_attn" >/dev/null 2>&1; then
+  ATTN_IMPL="flash_attention_2"
+  echo "attention: flash_attention_2 (flash-attn available)"
+else
+  echo "attention: sdpa (flash-attn not installed — pip install flash-attn for FA2 speedup)"
+fi
+
 # ---- self-heal deps: real mode needs openai (mock mode needs nothing) -------
 if [ "$MOCK" != "1" ]; then
   for dep in openai huggingface_hub; do
@@ -130,6 +140,16 @@ if [ "$MOCK" != "1" ]; then
       echo "$dep installed OK"
     fi
   done
+  # vLLM: needed to SERVE the teacher (big install; only when missing)
+  if ! "$PYBIN" -c "import vllm" >/dev/null 2>&1; then
+    echo "installing vLLM ${VLLM_VERSION} (large download — pulls torch; several minutes)"
+    "$PYBIN" -m pip install -q "vllm==${VLLM_VERSION}" || {
+      echo "ERROR: vLLM install failed. run manually:" >&2
+      echo "  $PYBIN -m pip install 'vllm==${VLLM_VERSION}'" >&2
+      exit 2
+    }
+    echo "vLLM installed OK"
+  fi
 fi
 
 # ---- teacher model download: ensure weights are in HF_HOME before serving --
@@ -171,10 +191,16 @@ if [ "$MOCK" != "1" ]; then
   serve_flags="--max-model-len 8192 --gpu-memory-utilization $VLLM_MEM_UTIL"
   [ "$GPU_ID" = "5090" ] && export VLLM_ATTENTION_BACKEND="$VLLM_BACKEND"
   start_teacher() {
-    LOG_TAG="teacher"
     mkdir -p data/logs
     echo "starting teacher in background: data/logs/teacher_serve.log"
-    nohup "$VENV_DIR/bin/vllm" serve "$TEACHER_MODEL" \
+    # console script if present; module invocation always works after pip install
+    local vllm_cmd
+    if [ -x "$VENV_DIR/bin/vllm" ]; then
+      vllm_cmd="$VENV_DIR/bin/vllm serve"
+    else
+      vllm_cmd="$PYBIN -m vllm.entrypoints.openai.api_server --model"
+    fi
+    nohup $vllm_cmd "$TEACHER_MODEL" \
         --port 8000 $serve_flags \
         > data/logs/teacher_serve.log 2>&1 &
     echo $! > data/logs/teacher_serve.pid
@@ -229,6 +255,7 @@ echo "== Stage 3: SFT (mock = data-pipeline dry run only) =="
   --data data/distilled/v0.5.0-distill-pilot \
   --out "$STUDENT_CKPT" --kd "${KD:-0.0}" \
   --batch-size "$TRAIN_BATCH" --grad-accum "$TRAIN_ACCUM" --optim "$TRAIN_OPTIM" \
+  --attn "$ATTN_IMPL" \
   $MOCK_FLAG
 
 echo "== Stage 4: on-policy correction -> DPO pairs =="
@@ -239,6 +266,6 @@ echo "== Stage 4: on-policy correction -> DPO pairs =="
 echo "== Stage 4b: DPO on correction pairs =="
 "$PYBIN" why5_distill/dpo_train.py \
   --pairs data/dpo_pairs.jsonl --model "$STUDENT_CKPT" \
-  --out ckpt/why5-dpo $MOCK_FLAG
+  --out ckpt/why5-dpo --attn "$ATTN_IMPL" $MOCK_FLAG
 
 echo "== distillation pipeline complete =="
