@@ -114,14 +114,22 @@ esac
 
 # ---- self-heal deps: real mode needs openai (mock mode needs nothing) -------
 if [ "$MOCK" != "1" ]; then
-  if ! "$PYBIN" -c "import openai" >/dev/null 2>&1; then
-    echo "installing missing dependency: openai -> $("$PYBIN" --version 2>&1 | cut -d' ' -f2) env"
-    "$PYBIN" -m pip install -q openai || {
-      echo "ERROR: automatic install failed. run manually:" >&2
-      echo "  $PYBIN -m pip install openai" >&2; exit 1
-    }
-    echo "openai installed OK"
-  fi
+  for dep in openai huggingface_hub; do
+    if ! "$PYBIN" -c "import $dep" >/dev/null 2>&1; then
+      echo "installing missing dependency: $dep -> $("$PYBIN" --version 2>&1 | cut -d' ' -f2) env"
+      if [ "$dep" = "huggingface_hub" ]; then
+        # [cli,hf_transfer]: huggingface-cli + fast parallel downloads
+        "$PYBIN" -m pip install -q "huggingface_hub[cli,hf_transfer]" || {
+          echo "ERROR: automatic install failed. run manually:" >&2
+          echo "  $PYBIN -m pip install 'huggingface_hub[cli,hf_transfer]'" >&2; exit 1; }
+      else
+        "$PYBIN" -m pip install -q "$dep" || {
+          echo "ERROR: automatic install failed. run manually:" >&2
+          echo "  $PYBIN -m pip install $dep" >&2; exit 1; }
+      fi
+      echo "$dep installed OK"
+    fi
+  done
 fi
 
 # ---- teacher model download: ensure weights are in HF_HOME before serving --
@@ -138,17 +146,22 @@ PY
 }
 download_model() {  # $1 = repo id
   echo "downloading teacher model: $1 -> HF_HOME=$HF_HOME"
-  if ! "$PYBIN" - "$1" <<'PY'
+  local dl_py='
 import sys
 from huggingface_hub import snapshot_download
 snapshot_download(sys.argv[1],
-                  ignore_patterns=["*.pth", "*.gguf", "*.bin", "original/*"])
-PY
-  then
-    echo "ERROR: model download failed. Fix manually:" >&2
-    echo "  $PYBIN -m pip install 'huggingface_hub[cli,hf_transfer]'" >&2
-    echo "  $PYBIN -c \"from huggingface_hub import snapshot_download; snapshot_download('$1')\"" >&2
-    exit 2
+                  ignore_patterns=["*.pth", "*.gguf", "*.bin", "original/*"])'
+  if ! "$PYBIN" -c "$dl_py" "$1"; then
+    # self-heal: hub package missing -> install, then retry once
+    echo "installing huggingface_hub into $("$PYBIN" --version 2>&1 | cut -d' ' -f2) env..."
+    "$PYBIN" -m pip install -q "huggingface_hub[cli,hf_transfer]" || {
+      echo "ERROR: pip install failed. run manually:" >&2
+      echo "  $PYBIN -m pip install 'huggingface_hub[cli,hf_transfer]'" >&2; exit 2; }
+    if ! "$PYBIN" -c "$dl_py" "$1"; then
+      echo "ERROR: download failed even with huggingface_hub installed. Fix manually:" >&2
+      echo "  $PYBIN -c \"from huggingface_hub import snapshot_download; snapshot_download('$1')\"" >&2
+      exit 2
+    fi
   fi
   echo "teacher model ready: $1"
 }
