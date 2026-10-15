@@ -269,6 +269,16 @@ PY
 
   start_teacher() {
     mkdir -p data/logs
+
+    # Ensure vLLM is installed before trying to serve
+    if ! "$PYBIN" -c "import vllm" >/dev/null 2>&1; then
+      LOG "vLLM is not installed in $PYBIN — installing vllm now..."
+      "$PYBIN" -m pip install "vllm>=0.8.0" || {
+        DIE "Failed to install vllm. Please install it manually: $PYBIN -m pip install vllm"
+      }
+      LOG "✓ vLLM installed successfully"
+    fi
+
     LOG "starting teacher server in background → data/logs/teacher_serve.log"
     local vllm_cmd
     if [ -x "$VENV_DIR/bin/vllm" ]; then
@@ -283,6 +293,13 @@ PY
     LOG "waiting for teacher startup (up to 15 min)..."
     for i in $(seq 1 180); do
       sleep 5
+      local pid
+      pid="$(cat data/logs/teacher_serve.pid 2>/dev/null || echo '')"
+      if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+        echo "ERROR: teacher server process ($pid) exited unexpectedly. Last log lines:" >&2
+        tail -25 data/logs/teacher_serve.log >&2
+        exit 2
+      fi
       if curl -sf -o /dev/null --max-time 3 "$TEACHER_URL/v1/models"; then
         LOG "✓ teacher is UP at $TEACHER_URL"
         return 0

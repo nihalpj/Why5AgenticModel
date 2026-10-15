@@ -16,6 +16,9 @@ huggingface_hub[cli,hf_transfer]
 jsonschema>=4.17
 docker>=6.0
 
+# ── Inference & Teacher Serving ──
+vllm>=0.8.0
+
 # ── Distillation & Training Stack ──
 transformers>=4.51.1,<4.53
 trl>=0.17

@@ -397,9 +397,8 @@ if [ "$GPU_FAMILY" != "CPU-only" ]; then
   if "$VENV_PY" -c "import vllm" 2>/dev/null; then
     LOG "vLLM $("$VENV_PY" -c 'import vllm; print(vllm.__version__)') present — skipping"
   else
-    LOG "installing vLLM ${VLLM_VERSION}"
-    $PIP install "vllm==${VLLM_VERSION}" \
-      || WARN "vLLM install failed — teacher serving will need manual setup"
+    LOG "installing vLLM"
+    $PIP install "vllm>=0.8.0" || $PIP install "vllm==${VLLM_VERSION}" || WARN "vLLM install failed — teacher serving will need manual setup"
   fi
 fi
 
